@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Pusher from 'pusher';
+import * as PusherLib from 'pusher';
+const Pusher = (PusherLib as any).default ?? PusherLib;
 
 @Injectable()
 export class PusherService {
-  private pusher: Pusher;
+  private pusher: any;
 
   constructor(private readonly configService: ConfigService) {
     this.pusher = new Pusher({

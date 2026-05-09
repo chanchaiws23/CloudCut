@@ -61,6 +61,12 @@ export class TimelineController {
     return this.timelineService.splitClip(projectId, clipId, dto, req.user.id);
   }
 
+  @Post('clips/batch')
+  @ApiOperation({ summary: 'Batch clip operations (atomic transaction)' })
+  batchClips(@Param('projectId') projectId: string, @Body() dto: BatchClipOperationDto, @Request() req: any) {
+    return this.timelineService.batchClipOperations(projectId, dto, req.user.id);
+  }
+
   // === Effects ===
   @Post('clips/:clipId/effects')
   @ApiOperation({ summary: 'Add effect to clip' })

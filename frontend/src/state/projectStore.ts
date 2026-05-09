@@ -24,7 +24,7 @@ interface ProjectState {
 
   addClip: (clip: Clip) => void;
   moveClip: (clipId: string, trackPositionMs: number, trackId?: string) => void;
-  trimClip: (clipId: string, inPointMs: number, outPointMs: number) => void;
+  trimClip: (clipId: string, inPointMs: number, outPointMs: number, trackPositionMs?: number) => void;
   splitClip: (clipId: string, atTimeMs: number) => void;
   deleteClips: (clipIds: string[]) => void;
   applyRemoteClipUpdate: (clipId: string, changes: Partial<Clip>) => void;
@@ -117,13 +117,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  trimClip: (clipId, inPointMs, outPointMs) => {
+  trimClip: (clipId, inPointMs, outPointMs, trackPositionMs?) => {
     const { clips, project } = get();
     const clip = clips.find((c) => c.id === clipId);
     if (!clip || !project) return;
 
     const prevIn = clip.inPointMs;
     const prevOut = clip.outPointMs;
+    const prevTrackPos = clip.trackPositionMs;
+    const newTrackPos = trackPositionMs ?? clip.trackPositionMs;
 
     commandManager.execute({
       id: uuidv4(),
@@ -133,18 +135,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       execute: () => {
         set((s) => ({
           clips: s.clips.map((c) =>
-            c.id === clipId ? { ...c, inPointMs, outPointMs, durationMs: outPointMs - inPointMs } : c,
+            c.id === clipId ? { ...c, inPointMs, outPointMs, durationMs: outPointMs - inPointMs, trackPositionMs: newTrackPos } : c,
           ),
         }));
-        api.timeline.updateClip(project.id, clipId, { inPointMs, outPointMs }).catch(console.error);
+        api.timeline.updateClip(project.id, clipId, { inPointMs, outPointMs, trackPositionMs: newTrackPos }).catch(console.error);
       },
       undo: () => {
         set((s) => ({
           clips: s.clips.map((c) =>
-            c.id === clipId ? { ...c, inPointMs: prevIn, outPointMs: prevOut, durationMs: prevOut - prevIn } : c,
+            c.id === clipId ? { ...c, inPointMs: prevIn, outPointMs: prevOut, durationMs: prevOut - prevIn, trackPositionMs: prevTrackPos } : c,
           ),
         }));
-        api.timeline.updateClip(project.id, clipId, { inPointMs: prevIn, outPointMs: prevOut }).catch(console.error);
+        api.timeline.updateClip(project.id, clipId, { inPointMs: prevIn, outPointMs: prevOut, trackPositionMs: prevTrackPos }).catch(console.error);
       },
     });
   },

@@ -4,7 +4,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { SyncService } from '../collaboration/sync.service';
 import {
   CreateTrackDto, UpdateTrackDto,
-  CreateClipDto, UpdateClipDto, SplitClipDto,
+  CreateClipDto, UpdateClipDto, SplitClipDto, BatchClipOperationDto,
   CreateEffectDto, UpdateEffectDto, ReorderEffectsDto,
   CreateTransitionDto, UpdateTransitionDto,
   CreateTextOverlayDto, UpdateTextOverlayDto,
@@ -176,6 +176,38 @@ export class TimelineService {
     );
     await this.syncService.broadcastOperation(projectId, userId, 'effect.reorder', { clipId, effectIds: dto.effectIds });
     return { reordered: true };
+  }
+
+  // === Batch Operations ===
+  async batchClipOperations(projectId: string, dto: BatchClipOperationDto, userId: string) {
+    await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    const results = await this.prisma.$transaction(async (tx) => {
+      const opResults: any[] = [];
+      for (const op of dto.operations) {
+        if (op.action === 'move') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { trackPositionMs: op.data?.trackPositionMs },
+          });
+          opResults.push(clip);
+        } else if (op.action === 'delete') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { deletedAt: new Date() },
+          });
+          opResults.push(clip);
+        } else if (op.action === 'update') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { ...op.data },
+          });
+          opResults.push(clip);
+        }
+      }
+      return opResults;
+    });
+    await this.syncService.broadcastOperation(projectId, userId, 'clip.batch', { operations: dto.operations });
+    return { results };
   }
 
   // === Transitions ===

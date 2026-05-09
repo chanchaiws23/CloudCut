@@ -46,4 +46,16 @@ export class ProjectsController {
   duplicate(@Param('id') id: string, @Request() req: any) {
     return this.projectsService.duplicate(id, req.user.id);
   }
+
+  @Get(':id/versions')
+  @ApiOperation({ summary: 'Get project version history (snapshots)' })
+  getVersions(@Param('id') id: string, @Request() req: any) {
+    return this.projectsService.getVersions(id, req.user.id);
+  }
+
+  @Post(':id/versions')
+  @ApiOperation({ summary: 'Create manual project snapshot' })
+  createSnapshot(@Param('id') id: string, @Request() req: any) {
+    return this.projectsService.createSnapshot(id, req.user.id);
+  }
 }

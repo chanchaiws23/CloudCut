@@ -121,6 +121,35 @@ export class ProjectsService {
     });
   }
 
+  async getVersions(projectId: string, userId: string) {
+    const project = await this.findById(projectId, userId);
+    return this.prisma.operationLog.findMany({
+      where: { projectId: project.id, operationType: 'project.snapshot' },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
+  async createSnapshot(projectId: string, userId: string) {
+    const project = await this.findById(projectId, userId);
+    await this.workspacesService.assertRole(project.workspaceId, userId, ['owner', 'admin', 'editor']);
+    const snapshot = JSON.stringify({
+      tracks: project.tracks,
+      clips: project.clips,
+      transitions: project.transitions,
+      textOverlays: project.textOverlays,
+    });
+    return this.prisma.operationLog.create({
+      data: {
+        projectId: project.id,
+        userId,
+        operationType: 'project.snapshot',
+        payload: { snapshot, name: `Snapshot ${new Date().toISOString()}` },
+        clientSeq: 0,
+      },
+    });
+  }
+
   async assertProjectAccess(projectId: string, userId: string, roles?: string[]) {
     const project = await this.prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
     if (!project) throw new NotFoundException('Project not found');

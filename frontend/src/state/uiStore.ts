@@ -7,6 +7,7 @@ interface UIState {
   scrollPosition: number;
   activeTool: ActiveTool;
   snapEnabled: boolean;
+  snapGuideMs: number | null;
   panelSizes: { left: number; center: number; right: number; bottom: number };
 
   selectClip: (id: string, additive?: boolean) => void;
@@ -16,6 +17,7 @@ interface UIState {
   setScrollPosition: (pos: number) => void;
   setActiveTool: (tool: ActiveTool) => void;
   toggleSnap: () => void;
+  setSnapGuideMs: (ms: number | null) => void;
   setPanelSizes: (sizes: Partial<UIState['panelSizes']>) => void;
 }
 
@@ -25,6 +27,7 @@ export const useUIStore = create<UIState>((set) => ({
   scrollPosition: 0,
   activeTool: 'select',
   snapEnabled: true,
+  snapGuideMs: null,
   panelSizes: { left: 20, center: 55, right: 25, bottom: 40 },
 
   selectClip: (id, additive = false) =>
@@ -42,6 +45,7 @@ export const useUIStore = create<UIState>((set) => ({
   setScrollPosition: (pos) => set({ scrollPosition: Math.max(0, pos) }),
   setActiveTool: (tool) => set({ activeTool: tool }),
   toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
+  setSnapGuideMs: (ms) => set({ snapGuideMs: ms }),
   setPanelSizes: (sizes) =>
     set((s) => ({ panelSizes: { ...s.panelSizes, ...sizes } })),
 }));

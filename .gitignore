@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.env
+*.log
+.DS_Store
+coverage/
+.turbo/
+*.tsbuildinfo
+.next/
+.vite/
+prisma/*.db
+prisma/*.db-journal
+uploads/
+temp/

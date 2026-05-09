@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cloudcut-db
+    environment:
+      POSTGRES_USER: cloudcut
+      POSTGRES_PASSWORD: cloudcut_secret
+      POSTGRES_DB: cloudcut
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cloudcut']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cloudcut-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloudcut-api
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgresql://cloudcut:cloudcut_secret@postgres:5432/cloudcut
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: supersecret-change-in-production
+      JWT_REFRESH_SECRET: refresh-supersecret-change-in-production
+      PUSHER_APP_ID: ${PUSHER_APP_ID}
+      PUSHER_KEY: ${PUSHER_KEY}
+      PUSHER_SECRET: ${PUSHER_SECRET}
+      PUSHER_CLUSTER: ${PUSHER_CLUSTER}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cloudcut-ui
+    ports:
+      - '5173:5173'
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_PUSHER_KEY: ${PUSHER_KEY}
+      VITE_PUSHER_CLUSTER: ${PUSHER_CLUSTER}
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

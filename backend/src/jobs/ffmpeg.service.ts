@@ -1,8 +1,14 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { Injectable, Logger } from '@nestjs/common';
+import * as ffmpeg from 'fluent-ffmpeg';
+import * as ffmpegPath from 'ffmpeg-static';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+const FFMPEG_BINARY: string = (ffmpegPath as unknown as string) || 'ffmpeg';
+if (FFMPEG_BINARY) {
+  ffmpeg.setFfmpegPath(FFMPEG_BINARY);
+}
 
 export interface AssetMetadata {
   durationMs: number;
@@ -14,168 +20,107 @@ export interface AssetMetadata {
   fileSizeBytes: number;
 }
 
+function runFfmpeg(cmd: ffmpeg.FfmpegCommand): Promise<void> {
+  return new Promise((resolve, reject) => {
+    cmd
+      .on('end', () => resolve())
+      .on('error', (err: Error) => reject(err))
+      .run();
+  });
+}
+
 @Injectable()
-export class FfmpegService implements OnModuleInit {
+export class FfmpegService {
   private readonly logger = new Logger(FfmpegService.name);
-  private ffmpeg!: FFmpeg;
-  private loaded = false;
 
-  async onModuleInit() {
-    this.ffmpeg = new FFmpeg();
-    this.ffmpeg.on('log', ({ message }) => {
-      this.logger.debug(`[ffmpeg] ${message}`);
-    });
-    try {
-      const { toBlobURL } = await import('@ffmpeg/util');
-      await this.ffmpeg.load({
-        coreURL: await toBlobURL(
-          `https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js`,
-          'text/javascript',
-        ),
-        wasmURL: await toBlobURL(
-          `https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm`,
-          'application/wasm',
-        ),
-      });
-      this.loaded = true;
-      this.logger.log('ffmpeg.wasm loaded successfully');
-    } catch (err) {
-      this.logger.warn(`ffmpeg.wasm failed to load (no network?): ${(err as Error).message}`);
-    }
-  }
-
-  private async ensureLoaded() {
-    if (!this.loaded) {
-      throw new Error('ffmpeg.wasm is not loaded');
-    }
+  private tmpDir(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'cloudcut-'));
   }
 
   async extractMetadata(inputUrl: string): Promise<AssetMetadata> {
-    await this.ensureLoaded();
     this.logger.log(`Extracting metadata: ${inputUrl}`);
 
-    const { fetchFile } = await import('@ffmpeg/util');
-    const inputData = await fetchFile(inputUrl);
-    await this.ffmpeg.writeFile('input_meta', inputData);
+    const stats = fs.existsSync(inputUrl) ? fs.statSync(inputUrl) : { size: 0 };
 
-    const logs: string[] = [];
-    const logHandler = ({ message }: { message: string }) => logs.push(message);
-    this.ffmpeg.on('log', logHandler);
-
-    try {
-      await this.ffmpeg.exec(['-i', 'input_meta', '-f', 'null', '-']);
-    } catch {
-      // ffmpeg exits with code 1 when probing — logs still captured
-    }
-
-    this.ffmpeg.off('log', logHandler);
-    await this.ffmpeg.deleteFile('input_meta');
-
-    const combined = logs.join('\n');
-
-    const durationMatch = combined.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
-    const videoMatch = combined.match(/Video:\s*(\w+).*?,\s*(\d+)x(\d+)/);
-    const audioMatch = combined.match(/Audio:\s*(\w+).*?,\s*.*?(\d)\s*channel/);
-
-    let durationMs = 0;
-    if (durationMatch) {
-      const [, hh, mm, ss] = durationMatch;
-      durationMs = (parseInt(hh) * 3600 + parseInt(mm) * 60 + parseFloat(ss)) * 1000;
-    }
-
-    return {
-      durationMs: Math.round(durationMs),
-      width: videoMatch ? parseInt(videoMatch[2]) : 0,
-      height: videoMatch ? parseInt(videoMatch[3]) : 0,
-      codec: videoMatch ? videoMatch[1] : 'unknown',
-      audioCodec: audioMatch ? audioMatch[1] : 'unknown',
-      audioChannels: audioMatch ? parseInt(audioMatch[2]) : 0,
-      fileSizeBytes: inputData.byteLength,
-    };
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(inputUrl, (err, data) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const videoStream = data.streams.find((s: any) => s.codec_type === 'video');
+        const audioStream = data.streams.find((s: any) => s.codec_type === 'audio');
+        const durationSec = parseFloat(String(data.format.duration || '0'));
+        resolve({
+          durationMs: Math.round(durationSec * 1000),
+          width: videoStream?.width ?? 0,
+          height: videoStream?.height ?? 0,
+          codec: videoStream?.codec_name ?? 'unknown',
+          audioCodec: audioStream?.codec_name ?? 'unknown',
+          audioChannels: audioStream?.channels ?? 0,
+          fileSizeBytes: stats.size,
+        });
+      });
+    });
   }
 
   async generateProxy(inputUrl: string, assetId: string): Promise<Uint8Array> {
-    await this.ensureLoaded();
     this.logger.log(`Generating 720p proxy for asset: ${assetId}`);
+    const tmp = this.tmpDir();
+    const outFile = path.join(tmp, 'proxy.mp4');
 
-    const { fetchFile } = await import('@ffmpeg/util');
-    const inputData = await fetchFile(inputUrl);
-    await this.ffmpeg.writeFile('proxy_input.mp4', inputData);
+    await runFfmpeg(
+      ffmpeg(inputUrl)
+        .videoFilter('scale=-2:720')
+        .videoCodec('libx264')
+        .addOption('-preset', 'fast')
+        .addOption('-crf', '28')
+        .audioCodec('aac')
+        .audioBitrate('128k')
+        .output(outFile),
+    );
 
-    await this.ffmpeg.exec([
-      '-i', 'proxy_input.mp4',
-      '-vf', 'scale=-2:720',
-      '-c:v', 'libx264',
-      '-preset', 'fast',
-      '-crf', '28',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      'proxy_output.mp4',
-    ]);
-
-    const output = await this.ffmpeg.readFile('proxy_output.mp4') as Uint8Array;
-    await this.ffmpeg.deleteFile('proxy_input.mp4');
-    await this.ffmpeg.deleteFile('proxy_output.mp4');
-
+    const output = fs.readFileSync(outFile);
+    fs.rmSync(tmp, { recursive: true, force: true });
     this.logger.log(`Proxy generated: ${output.byteLength} bytes`);
-    return output;
+    return new Uint8Array(output);
   }
 
   async generateThumbnails(inputUrl: string, assetId: string, intervalSeconds = 5): Promise<Uint8Array[]> {
-    await this.ensureLoaded();
     this.logger.log(`Generating thumbnails every ${intervalSeconds}s for asset: ${assetId}`);
+    const tmp = this.tmpDir();
 
-    const { fetchFile } = await import('@ffmpeg/util');
-    const inputData = await fetchFile(inputUrl);
-    await this.ffmpeg.writeFile('thumb_input.mp4', inputData);
+    await runFfmpeg(
+      ffmpeg(inputUrl)
+        .videoFilter(`fps=1/${intervalSeconds},scale=160:-1`)
+        .addOption('-q:v', '5')
+        .output(path.join(tmp, 'thumb_%03d.jpg')),
+    );
 
-    await this.ffmpeg.exec([
-      '-i', 'thumb_input.mp4',
-      '-vf', `fps=1/${intervalSeconds},scale=160:-1`,
-      '-q:v', '5',
-      'thumb_%03d.jpg',
-    ]);
-
-    const thumbnails: Uint8Array[] = [];
-    let index = 1;
-    while (true) {
-      const name = `thumb_${String(index).padStart(3, '0')}.jpg`;
-      try {
-        const data = await this.ffmpeg.readFile(name) as Uint8Array;
-        thumbnails.push(data);
-        await this.ffmpeg.deleteFile(name);
-        index++;
-      } catch {
-        break;
-      }
-    }
-
-    await this.ffmpeg.deleteFile('thumb_input.mp4');
+    const files = fs.readdirSync(tmp).filter((f) => f.startsWith('thumb_')).sort();
+    const thumbnails = files.map((f) => new Uint8Array(fs.readFileSync(path.join(tmp, f))));
+    fs.rmSync(tmp, { recursive: true, force: true });
     this.logger.log(`Generated ${thumbnails.length} thumbnails`);
     return thumbnails;
   }
 
   async extractWaveform(inputUrl: string, assetId: string): Promise<{ peaks: number[][] }> {
-    await this.ensureLoaded();
     this.logger.log(`Extracting waveform for asset: ${assetId}`);
+    const tmp = this.tmpDir();
+    const rawFile = path.join(tmp, 'wave.raw');
 
-    const { fetchFile } = await import('@ffmpeg/util');
-    const inputData = await fetchFile(inputUrl);
-    await this.ffmpeg.writeFile('wave_input.mp4', inputData);
+    await runFfmpeg(
+      ffmpeg(inputUrl)
+        .audioChannels(1)
+        .audioFilter('aformat=sample_fmts=s16')
+        .format('s16le')
+        .output(rawFile),
+    );
 
-    await this.ffmpeg.exec([
-      '-i', 'wave_input.mp4',
-      '-ac', '1',
-      '-filter:a', 'aformat=sample_fmts=s16',
-      '-f', 's16le',
-      'wave_output.raw',
-    ]);
+    const rawData = fs.readFileSync(rawFile);
+    fs.rmSync(tmp, { recursive: true, force: true });
 
-    const rawData = await this.ffmpeg.readFile('wave_output.raw') as Uint8Array;
-    await this.ffmpeg.deleteFile('wave_input.mp4');
-    await this.ffmpeg.deleteFile('wave_output.raw');
-
-    const samples = new Int16Array(rawData.buffer);
+    const samples = new Int16Array(rawData.buffer, rawData.byteOffset, rawData.byteLength / 2);
     const bucketCount = 200;
     const bucketSize = Math.floor(samples.length / bucketCount);
     const peaks: number[][] = [];
@@ -199,55 +144,44 @@ export class FfmpegService implements OnModuleInit {
     segments: Array<{ inputPath: string; inPointMs: number; outPointMs: number }>,
     outputPath: string,
   ): Promise<string> {
-    await this.ensureLoaded();
     this.logger.log(`Trimming and concatenating ${segments.length} segments → ${outputPath}`);
-
+    const tmp = this.tmpDir();
     const segmentFiles: string[] = [];
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      const segName = `seg_${i}.mp4`;
-      const { fetchFile } = await import('@ffmpeg/util');
-      const inputData = await fetchFile(seg.inputPath);
-      await this.ffmpeg.writeFile(`raw_${i}.mp4`, inputData);
-
-      await this.ffmpeg.exec([
-        '-i', `raw_${i}.mp4`,
-        '-ss', String(seg.inPointMs / 1000),
-        '-to', String(seg.outPointMs / 1000),
-        '-c', 'copy',
-        segName,
-      ]);
-
-      await this.ffmpeg.deleteFile(`raw_${i}.mp4`);
-      segmentFiles.push(segName);
+      const segFile = path.join(tmp, `seg_${i}.mp4`);
+      await runFfmpeg(
+        ffmpeg(seg.inputPath)
+          .seekInput(seg.inPointMs / 1000)
+          .duration((seg.outPointMs - seg.inPointMs) / 1000)
+          .addOption('-c', 'copy')
+          .output(segFile),
+      );
+      segmentFiles.push(segFile);
     }
 
-    const concatList = segmentFiles.map((f) => `file '${f}'`).join('\n');
-    await this.ffmpeg.writeFile('concat_list.txt', new TextEncoder().encode(concatList));
+    const listFile = path.join(tmp, 'concat_list.txt');
+    const concatList = segmentFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join('\n');
+    fs.writeFileSync(listFile, concatList);
 
-    await this.ffmpeg.exec([
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', 'concat_list.txt',
-      '-c', 'copy',
-      'final_output.mp4',
-    ]);
+    const outFile = path.join(tmp, 'final_output.mp4');
+    await runFfmpeg(
+      ffmpeg()
+        .input(listFile)
+        .inputFormat('concat')
+        .addOption('-safe', '0')
+        .addOption('-c', 'copy')
+        .output(outFile),
+    );
 
-    const outputData = await this.ffmpeg.readFile('final_output.mp4') as Uint8Array;
+    const outputData = fs.readFileSync(outFile);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, outputData);
+    fs.rmSync(tmp, { recursive: true, force: true });
 
-    await this.ffmpeg.deleteFile('concat_list.txt');
-    await this.ffmpeg.deleteFile('final_output.mp4');
-    for (const f of segmentFiles) {
-      await this.ffmpeg.deleteFile(f).catch(() => {});
-    }
-
-    const tmpDir = os.tmpdir();
-    const outFile = path.join(tmpDir, path.basename(outputPath));
-    fs.writeFileSync(outFile, outputData);
-
-    this.logger.log(`Concat done: ${outFile} (${outputData.byteLength} bytes)`);
-    return outFile;
+    this.logger.log(`Concat done: ${outputPath} (${outputData.byteLength} bytes)`);
+    return outputPath;
   }
 
   async applyEffects(
@@ -255,7 +189,6 @@ export class FfmpegService implements OnModuleInit {
     outputPath: string,
     effects: Array<{ type: string; params: Record<string, any> }>,
   ): Promise<string> {
-    await this.ensureLoaded();
     this.logger.log(`Applying ${effects.length} effects`);
 
     const filterParts: string[] = [];
@@ -281,33 +214,21 @@ export class FfmpegService implements OnModuleInit {
 
     if (filterParts.length === 0) return outputPath;
 
-    const inputData = fs.readFileSync(inputPath);
-    await this.ffmpeg.writeFile('fx_input.mp4', new Uint8Array(inputData));
+    await runFfmpeg(
+      ffmpeg(inputPath)
+        .videoFilter(filterParts.join(','))
+        .audioCodec('copy')
+        .output(outputPath),
+    );
 
-    await this.ffmpeg.exec([
-      '-i', 'fx_input.mp4',
-      '-vf', filterParts.join(','),
-      '-c:a', 'copy',
-      'fx_output.mp4',
-    ]);
-
-    const outputData = await this.ffmpeg.readFile('fx_output.mp4') as Uint8Array;
-    await this.ffmpeg.deleteFile('fx_input.mp4');
-    await this.ffmpeg.deleteFile('fx_output.mp4');
-
-    fs.writeFileSync(outputPath, outputData);
     this.logger.log(`Effects applied → ${outputPath}`);
     return outputPath;
   }
 
   async overlayTracks(inputPaths: string[], outputPath: string): Promise<string> {
-    await this.ensureLoaded();
     this.logger.log(`Overlaying ${inputPaths.length} tracks`);
-
-    for (let i = 0; i < inputPaths.length; i++) {
-      const data = fs.readFileSync(inputPaths[i]);
-      await this.ffmpeg.writeFile(`overlay_${i}.mp4`, new Uint8Array(data));
-    }
+    const tmp = this.tmpDir();
+    const outFile = path.join(tmp, 'overlay.mp4');
 
     let filterComplex = `[0:v]setpts=PTS-STARTPTS[base];`;
     for (let i = 1; i < inputPaths.length; i++) {
@@ -316,24 +237,24 @@ export class FfmpegService implements OnModuleInit {
     }
     filterComplex = filterComplex.replace(/\[base\];$/, '[outv]');
 
-    const inputs = inputPaths.flatMap((_, i) => ['-i', `overlay_${i}.mp4`]);
-    await this.ffmpeg.exec([
-      ...inputs,
-      '-filter_complex', filterComplex,
-      '-map', '[outv]',
-      '-map', '0:a?',
-      '-c:v', 'libx264',
-      '-c:a', 'aac',
-      'overlay_output.mp4',
-    ]);
-
-    const outputData = await this.ffmpeg.readFile('overlay_output.mp4') as Uint8Array;
-    for (let i = 0; i < inputPaths.length; i++) {
-      await this.ffmpeg.deleteFile(`overlay_${i}.mp4`).catch(() => {});
+    const cmd = ffmpeg();
+    for (const input of inputPaths) {
+      cmd.input(input);
     }
-    await this.ffmpeg.deleteFile('overlay_output.mp4').catch(() => {});
+    await runFfmpeg(
+      cmd
+        .complexFilter(filterComplex)
+        .addOption('-map', '[outv]')
+        .addOption('-map', '0:a?')
+        .videoCodec('libx264')
+        .audioCodec('aac')
+        .output(outFile),
+    );
 
-    fs.writeFileSync(outputPath, outputData);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.copyFileSync(outFile, outputPath);
+    fs.rmSync(tmp, { recursive: true, force: true });
+
     this.logger.log(`Overlay done → ${outputPath}`);
     return outputPath;
   }
@@ -351,15 +272,11 @@ export class FfmpegService implements OnModuleInit {
       trackPositionMs: number;
     }>,
   ): Promise<string> {
-    await this.ensureLoaded();
     this.logger.log(`Burning ${overlays.length} text overlays`);
 
     if (overlays.length === 0) return inputPath;
 
-    const inputData = fs.readFileSync(inputPath);
-    await this.ffmpeg.writeFile('text_input.mp4', new Uint8Array(inputData));
-
-    const drawtexts = overlays.map((o, i) => {
+    const drawtexts = overlays.map((o) => {
       const x = Math.round(o.positionX * 100);
       const y = Math.round(o.positionY * 100);
       const start = o.trackPositionMs / 1000;
@@ -367,18 +284,13 @@ export class FfmpegService implements OnModuleInit {
       return `drawtext=text='${o.content}':fontsize=${o.fontSize}:fontcolor=${o.fontColor}:x=(w*${x}/100):y=(h*${y}/100):enable='between(t\\,${start}\\,${end})'`;
     });
 
-    await this.ffmpeg.exec([
-      '-i', 'text_input.mp4',
-      '-vf', drawtexts.join(','),
-      '-c:a', 'copy',
-      'text_output.mp4',
-    ]);
+    await runFfmpeg(
+      ffmpeg(inputPath)
+        .videoFilter(drawtexts.join(','))
+        .audioCodec('copy')
+        .output(outputPath),
+    );
 
-    const outputData = await this.ffmpeg.readFile('text_output.mp4') as Uint8Array;
-    await this.ffmpeg.deleteFile('text_input.mp4');
-    await this.ffmpeg.deleteFile('text_output.mp4');
-
-    fs.writeFileSync(outputPath, outputData);
     this.logger.log(`Text overlays burned → ${outputPath}`);
     return outputPath;
   }

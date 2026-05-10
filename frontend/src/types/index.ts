@@ -76,6 +76,7 @@ export interface Clip {
   outPointMs: number;
   durationMs: number;
   transform: { x: number; y: number; scale: number; rotation: number; opacity: number };
+  deletedAt?: string | null;
   effects?: ClipEffect[];
   asset?: Asset;
 }

@@ -18,10 +18,12 @@ export class ThumbnailGenerationProcessor extends WorkerHost {
   async process(job: Job<{ assetId: string; originalUrl: string; metadata: any }>) {
     const { assetId, originalUrl } = job.data;
     this.logger.log(`Generating thumbnails for asset: ${assetId}`);
-    const thumbnails = await this.ffmpegService.generateThumbnails(originalUrl, `thumbnails/${assetId}`);
+    const thumbnails = await this.ffmpegService.generateThumbnails(originalUrl, assetId);
+    const stripUrl = `thumbnails/${assetId}/strip.jpg`;
+    this.logger.log(`Generated ${thumbnails.length} thumbnails, total bytes: ${thumbnails.reduce((s, t) => s + t.byteLength, 0)}`);
     await this.prisma.assetVariant.create({
-      data: { assetId, type: 'thumbnail_strip', url: thumbnails[0] || '', metadata: { count: thumbnails.length, interval: 5 } },
+      data: { assetId, type: 'thumbnail_strip', url: stripUrl, metadata: { count: thumbnails.length, interval: 5 } },
     });
-    return { thumbnails };
+    return { count: thumbnails.length, stripUrl };
   }
 }

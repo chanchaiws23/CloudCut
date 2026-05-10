@@ -1,6 +1,6 @@
 export function msToTimecode(ms: number, fps = 30): string {
   const totalSeconds = Math.floor(ms / 1000);
-  const frames = Math.floor((ms % 1000) / (1000 / fps));
+  const frames = Math.round((ms % 1000) / (1000 / fps));
   const seconds = totalSeconds % 60;
   const minutes = Math.floor(totalSeconds / 60) % 60;
   const hours = Math.floor(totalSeconds / 3600);

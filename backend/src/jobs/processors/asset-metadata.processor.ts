@@ -23,7 +23,15 @@ export class AssetMetadataProcessor extends WorkerHost {
 
     try {
       const metadata = await this.ffmpegService.extractMetadata(originalUrl);
-      await this.progressService.updateAssetStatus(assetId, 'processing', metadata);
+      await this.progressService.updateAssetStatus(assetId, 'processing', {
+        durationMs: metadata.durationMs,
+        width: metadata.width,
+        height: metadata.height,
+        codec: metadata.codec,
+        audioCodec: metadata.audioCodec,
+        audioChannels: metadata.audioChannels,
+        fileSizeBytes: metadata.fileSizeBytes,
+      });
       await this.orchestratorService.startParallelProcessing(assetId, originalUrl, metadata);
       this.logger.log(`Metadata extracted for asset: ${assetId}`);
       return metadata;

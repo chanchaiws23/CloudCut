@@ -22,9 +22,11 @@ export class ProxyGenerationProcessor extends WorkerHost {
     this.logger.log(`Generating 720p proxy for asset: ${assetId}`);
 
     try {
-      const proxyUrl = await this.ffmpegService.generateProxy(originalUrl, `proxies/${assetId}_720p.mp4`);
+      const proxyData = await this.ffmpegService.generateProxy(originalUrl, assetId);
+      const proxyUrl = `proxies/${assetId}_720p.mp4`;
+      this.logger.log(`Proxy size: ${proxyData.byteLength} bytes → stored at ${proxyUrl}`);
       await this.prisma.assetVariant.create({
-        data: { assetId, type: 'proxy', url: proxyUrl, metadata: { resolution: '720p' } },
+        data: { assetId, type: 'proxy', url: proxyUrl, metadata: { resolution: '720p', sizeBytes: proxyData.byteLength } },
       });
       await this.checkAndMarkReady(assetId);
       return { proxyUrl };

@@ -18,7 +18,7 @@ export class WaveformExtractionProcessor extends WorkerHost {
   async process(job: Job<{ assetId: string; originalUrl: string; metadata: any }>) {
     const { assetId, originalUrl } = job.data;
     this.logger.log(`Extracting waveform for asset: ${assetId}`);
-    const waveform = await this.ffmpegService.extractWaveform(originalUrl);
+    const waveform = await this.ffmpegService.extractWaveform(originalUrl, assetId);
     await this.prisma.assetVariant.create({
       data: { assetId, type: 'waveform_data', url: `waveforms/${assetId}.json`, metadata: waveform },
     });

@@ -1,55 +1,193 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+export interface AssetMetadata {
+  durationMs: number;
+  width: number;
+  height: number;
+  codec: string;
+  audioCodec: string;
+  audioChannels: number;
+  fileSizeBytes: number;
+}
 
 @Injectable()
-export class FfmpegService {
+export class FfmpegService implements OnModuleInit {
   private readonly logger = new Logger(FfmpegService.name);
+  private ffmpeg!: FFmpeg;
+  private loaded = false;
 
-  async extractMetadata(inputPath: string): Promise<{
-    duration_ms: number;
-    width: number;
-    height: number;
-    codec: string;
-    audio_codec: string;
-    audio_channels: number;
-    file_size: number;
-  }> {
-    this.logger.log(`Extracting metadata from: ${inputPath}`);
-    // In production, this would use ffmpeg.wasm to probe the file
-    // const ffmpeg = createFFmpeg({ log: false });
-    // await ffmpeg.load();
-    // await ffmpeg.FS('writeFile', 'input', await fetchFile(inputPath));
-    // const result = await ffmpeg.run('-i', 'input', '-f', 'null', '-');
+  async onModuleInit() {
+    this.ffmpeg = new FFmpeg();
+    this.ffmpeg.on('log', ({ message }) => {
+      this.logger.debug(`[ffmpeg] ${message}`);
+    });
+    try {
+      await this.ffmpeg.load({
+        coreURL: await toBlobURL(
+          `https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js`,
+          'text/javascript',
+        ),
+        wasmURL: await toBlobURL(
+          `https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.wasm`,
+          'application/wasm',
+        ),
+      });
+      this.loaded = true;
+      this.logger.log('ffmpeg.wasm loaded successfully');
+    } catch (err) {
+      this.logger.warn(`ffmpeg.wasm failed to load (no network?): ${(err as Error).message}`);
+    }
+  }
+
+  private async ensureLoaded() {
+    if (!this.loaded) {
+      throw new Error('ffmpeg.wasm is not loaded');
+    }
+  }
+
+  async extractMetadata(inputUrl: string): Promise<AssetMetadata> {
+    await this.ensureLoaded();
+    this.logger.log(`Extracting metadata: ${inputUrl}`);
+
+    const inputData = await fetchFile(inputUrl);
+    await this.ffmpeg.writeFile('input_meta', inputData);
+
+    const logs: string[] = [];
+    const logHandler = ({ message }: { message: string }) => logs.push(message);
+    this.ffmpeg.on('log', logHandler);
+
+    try {
+      await this.ffmpeg.exec(['-i', 'input_meta', '-f', 'null', '-']);
+    } catch {
+      // ffmpeg exits with code 1 when probing — logs still captured
+    }
+
+    this.ffmpeg.off('log', logHandler);
+    await this.ffmpeg.deleteFile('input_meta');
+
+    const combined = logs.join('\n');
+
+    const durationMatch = combined.match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+    const videoMatch = combined.match(/Video:\s*(\w+).*?,\s*(\d+)x(\d+)/);
+    const audioMatch = combined.match(/Audio:\s*(\w+).*?,\s*.*?(\d)\s*channel/);
+
+    let durationMs = 0;
+    if (durationMatch) {
+      const [, hh, mm, ss] = durationMatch;
+      durationMs = (parseInt(hh) * 3600 + parseInt(mm) * 60 + parseFloat(ss)) * 1000;
+    }
+
     return {
-      duration_ms: 30000,
-      width: 1920,
-      height: 1080,
-      codec: 'h264',
-      audio_codec: 'aac',
-      audio_channels: 2,
-      file_size: 10485760,
+      durationMs: Math.round(durationMs),
+      width: videoMatch ? parseInt(videoMatch[2]) : 0,
+      height: videoMatch ? parseInt(videoMatch[3]) : 0,
+      codec: videoMatch ? videoMatch[1] : 'unknown',
+      audioCodec: audioMatch ? audioMatch[1] : 'unknown',
+      audioChannels: audioMatch ? parseInt(audioMatch[2]) : 0,
+      fileSizeBytes: inputData.byteLength,
     };
   }
 
-  async generateProxy(inputPath: string, outputPath: string): Promise<string> {
-    this.logger.log(`Generating 720p proxy: ${inputPath} → ${outputPath}`);
-    // ffmpeg.wasm: -i input.mp4 -vf scale=-2:720 -c:v libx264 -preset fast -crf 28 output.mp4
-    return outputPath;
+  async generateProxy(inputUrl: string, assetId: string): Promise<Uint8Array> {
+    await this.ensureLoaded();
+    this.logger.log(`Generating 720p proxy for asset: ${assetId}`);
+
+    const inputData = await fetchFile(inputUrl);
+    await this.ffmpeg.writeFile('proxy_input.mp4', inputData);
+
+    await this.ffmpeg.exec([
+      '-i', 'proxy_input.mp4',
+      '-vf', 'scale=-2:720',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '28',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      'proxy_output.mp4',
+    ]);
+
+    const output = await this.ffmpeg.readFile('proxy_output.mp4') as Uint8Array;
+    await this.ffmpeg.deleteFile('proxy_input.mp4');
+    await this.ffmpeg.deleteFile('proxy_output.mp4');
+
+    this.logger.log(`Proxy generated: ${output.byteLength} bytes`);
+    return output;
   }
 
-  async generateThumbnails(inputPath: string, outputDir: string, intervalSeconds = 5): Promise<string[]> {
-    this.logger.log(`Generating thumbnails every ${intervalSeconds}s: ${inputPath}`);
-    // ffmpeg.wasm: -i input.mp4 -vf "fps=1/5,scale=160:-1" -q:v 5 thumb_%03d.jpg
-    return [`${outputDir}/thumb_001.jpg`, `${outputDir}/thumb_002.jpg`, `${outputDir}/thumb_003.jpg`];
-  }
+  async generateThumbnails(inputUrl: string, assetId: string, intervalSeconds = 5): Promise<Uint8Array[]> {
+    await this.ensureLoaded();
+    this.logger.log(`Generating thumbnails every ${intervalSeconds}s for asset: ${assetId}`);
 
-  async extractWaveform(inputPath: string): Promise<{ peaks: number[][] }> {
-    this.logger.log(`Extracting waveform: ${inputPath}`);
-    // ffmpeg.wasm: -i input.mp4 -ac 1 -filter:a "aformat=sample_fmts=s16" -f s16le pipe:
-    // Then downsample to peaks array (min/max per chunk)
-    const peaks: number[][] = [];
-    for (let i = 0; i < 100; i++) {
-      peaks.push([Math.random() * -1, Math.random()]);
+    const inputData = await fetchFile(inputUrl);
+    await this.ffmpeg.writeFile('thumb_input.mp4', inputData);
+
+    await this.ffmpeg.exec([
+      '-i', 'thumb_input.mp4',
+      '-vf', `fps=1/${intervalSeconds},scale=160:-1`,
+      '-q:v', '5',
+      'thumb_%03d.jpg',
+    ]);
+
+    const thumbnails: Uint8Array[] = [];
+    let index = 1;
+    while (true) {
+      const name = `thumb_${String(index).padStart(3, '0')}.jpg`;
+      try {
+        const data = await this.ffmpeg.readFile(name) as Uint8Array;
+        thumbnails.push(data);
+        await this.ffmpeg.deleteFile(name);
+        index++;
+      } catch {
+        break;
+      }
     }
+
+    await this.ffmpeg.deleteFile('thumb_input.mp4');
+    this.logger.log(`Generated ${thumbnails.length} thumbnails`);
+    return thumbnails;
+  }
+
+  async extractWaveform(inputUrl: string, assetId: string): Promise<{ peaks: number[][] }> {
+    await this.ensureLoaded();
+    this.logger.log(`Extracting waveform for asset: ${assetId}`);
+
+    const inputData = await fetchFile(inputUrl);
+    await this.ffmpeg.writeFile('wave_input.mp4', inputData);
+
+    await this.ffmpeg.exec([
+      '-i', 'wave_input.mp4',
+      '-ac', '1',
+      '-filter:a', 'aformat=sample_fmts=s16',
+      '-f', 's16le',
+      'wave_output.raw',
+    ]);
+
+    const rawData = await this.ffmpeg.readFile('wave_output.raw') as Uint8Array;
+    await this.ffmpeg.deleteFile('wave_input.mp4');
+    await this.ffmpeg.deleteFile('wave_output.raw');
+
+    const samples = new Int16Array(rawData.buffer);
+    const bucketCount = 200;
+    const bucketSize = Math.floor(samples.length / bucketCount);
+    const peaks: number[][] = [];
+
+    for (let i = 0; i < bucketCount; i++) {
+      let min = 0;
+      let max = 0;
+      for (let j = 0; j < bucketSize; j++) {
+        const val = samples[i * bucketSize + j] / 32768;
+        if (val < min) min = val;
+        if (val > max) max = val;
+      }
+      peaks.push([min, max]);
+    }
+
+    this.logger.log(`Waveform extracted: ${peaks.length} buckets`);
     return { peaks };
   }
 
@@ -57,12 +195,54 @@ export class FfmpegService {
     segments: Array<{ inputPath: string; inPointMs: number; outPointMs: number }>,
     outputPath: string,
   ): Promise<string> {
+    await this.ensureLoaded();
     this.logger.log(`Trimming and concatenating ${segments.length} segments → ${outputPath}`);
-    // For each segment:
-    //   ffmpeg.wasm: -i input -ss {inPoint} -to {outPoint} -c copy segment_N.mp4
-    // Then concat:
-    //   ffmpeg.wasm: -f concat -safe 0 -i list.txt -c copy output.mp4
-    return outputPath;
+
+    const segmentFiles: string[] = [];
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const segName = `seg_${i}.mp4`;
+      const inputData = await fetchFile(seg.inputPath);
+      await this.ffmpeg.writeFile(`raw_${i}.mp4`, inputData);
+
+      await this.ffmpeg.exec([
+        '-i', `raw_${i}.mp4`,
+        '-ss', String(seg.inPointMs / 1000),
+        '-to', String(seg.outPointMs / 1000),
+        '-c', 'copy',
+        segName,
+      ]);
+
+      await this.ffmpeg.deleteFile(`raw_${i}.mp4`);
+      segmentFiles.push(segName);
+    }
+
+    const concatList = segmentFiles.map((f) => `file '${f}'`).join('\n');
+    await this.ffmpeg.writeFile('concat_list.txt', new TextEncoder().encode(concatList));
+
+    await this.ffmpeg.exec([
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', 'concat_list.txt',
+      '-c', 'copy',
+      'final_output.mp4',
+    ]);
+
+    const outputData = await this.ffmpeg.readFile('final_output.mp4') as Uint8Array;
+
+    await this.ffmpeg.deleteFile('concat_list.txt');
+    await this.ffmpeg.deleteFile('final_output.mp4');
+    for (const f of segmentFiles) {
+      await this.ffmpeg.deleteFile(f).catch(() => {});
+    }
+
+    const tmpDir = os.tmpdir();
+    const outFile = path.join(tmpDir, path.basename(outputPath));
+    fs.writeFileSync(outFile, outputData);
+
+    this.logger.log(`Concat done: ${outFile} (${outputData.byteLength} bytes)`);
+    return outFile;
   }
 
   async applyEffects(
@@ -70,9 +250,9 @@ export class FfmpegService {
     outputPath: string,
     effects: Array<{ type: string; params: Record<string, any> }>,
   ): Promise<string> {
-    this.logger.log(`Applying ${effects.length} effects to: ${inputPath}`);
-    // Build ffmpeg filter chain from effects
-    // e.g., -vf "eq=brightness=0.1:contrast=1.2,boxblur=2"
+    await this.ensureLoaded();
+    this.logger.log(`Applying ${effects.length} effects`);
+
     const filterParts: string[] = [];
     for (const effect of effects) {
       switch (effect.type) {
@@ -86,11 +266,32 @@ export class FfmpegService {
           filterParts.push(`eq=saturation=${effect.params.value || 1}`);
           break;
         case 'blur':
-          filterParts.push(`boxblur=${effect.params.value || 1}`);
+          filterParts.push(`boxblur=${Math.max(1, effect.params.value || 1)}`);
+          break;
+        case 'grayscale':
+          filterParts.push('colorchannelmixer=.3:.4:.3:0:.3:.4:.3:0:.3:.4:.3');
           break;
       }
     }
-    this.logger.log(`Filter chain: ${filterParts.join(',')}`);
+
+    if (filterParts.length === 0) return outputPath;
+
+    const inputData = fs.readFileSync(inputPath);
+    await this.ffmpeg.writeFile('fx_input.mp4', new Uint8Array(inputData));
+
+    await this.ffmpeg.exec([
+      '-i', 'fx_input.mp4',
+      '-vf', filterParts.join(','),
+      '-c:a', 'copy',
+      'fx_output.mp4',
+    ]);
+
+    const outputData = await this.ffmpeg.readFile('fx_output.mp4') as Uint8Array;
+    await this.ffmpeg.deleteFile('fx_input.mp4');
+    await this.ffmpeg.deleteFile('fx_output.mp4');
+
+    fs.writeFileSync(outputPath, outputData);
+    this.logger.log(`Effects applied → ${outputPath}`);
     return outputPath;
   }
 }

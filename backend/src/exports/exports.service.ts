@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
+import { OrchestratorService } from '../jobs/orchestrator.service';
 import { CreateExportDto } from './dto/export.dto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -11,6 +12,7 @@ export class ExportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
+    private readonly orchestrator: OrchestratorService,
   ) {}
 
   async create(projectId: string, dto: CreateExportDto, userId: string) {
@@ -36,6 +38,8 @@ export class ExportsService {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
+
+    await this.orchestrator.startExport(exportJob.id, projectId);
 
     return exportJob;
   }

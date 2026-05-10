@@ -110,7 +110,26 @@ cloudcut/
 └── docs/                    # Architecture & API docs
 ```
 
-## 📖 Documentation
+## �️ Screenshots & Demo
+
+### Editor Workspace
+
+| View | Description |
+|------|-------------|
+| **Timeline Editor** | Multi-track timeline with drag-and-drop clips, snap guides, and zoom controls |
+| **Video Player** | Real-time preview with CSS filter effects synced to the timeline |
+| **Asset Browser** | Upload, browse, and drag assets onto timeline tracks |
+| **Inspector Panel** | Edit clip transform (position, scale, opacity) and toggle effects |
+| **Collaboration** | Live user cursors, presence list, and Pusher real-time sync |
+
+### Demo Videos
+
+- [Project Walkthrough](docs/demo/walkthrough.mp4) — Create a project, import assets, arrange clips, and export
+- [Real-time Collaboration](docs/demo/collaboration.mp4) — Two users editing the same timeline simultaneously
+
+> Place actual screenshots in `docs/screenshots/` and update the table above with image links once they are available.
+
+## �📖 Documentation
 
 - [Architecture Overview](docs/architecture.md)
 - [API Specification](docs/api-spec.md)

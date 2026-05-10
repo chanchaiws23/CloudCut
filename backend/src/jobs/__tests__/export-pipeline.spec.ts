@@ -23,15 +23,30 @@ const mockPrisma = {
       tracks: [],
     }),
   },
+  clip: {
+    findMany: jest.fn().mockResolvedValue([
+      {
+        id: 'clip-1',
+        asset: { originalUrl: 'https://storage/test.mp4' },
+        inPointMs: 0,
+        outPointMs: 5000,
+        effects: [],
+      },
+    ]),
+  },
 };
 
 const mockFfmpeg = {
   extractMetadata: jest.fn().mockResolvedValue({ durationMs: 5000 }),
-  generateProxy: jest.fn().mockResolvedValue('/tmp/proxy.mp4'),
-  renderExport: jest.fn().mockResolvedValue('/tmp/output.mp4'),
+  generateProxy: jest.fn().mockResolvedValue(new Uint8Array(1024)),
+  trimAndConcat: jest.fn().mockResolvedValue('/tmp/output.mp4'),
+  applyEffects: jest.fn().mockResolvedValue('/tmp/output.mp4'),
 };
 
-const mockProgress = { reportProgress: jest.fn() };
+const mockProgress = {
+  reportProgress: jest.fn(),
+  updateExportProgress: jest.fn().mockResolvedValue(undefined),
+};
 
 const mockJob = {
   id: 'job-1',
@@ -56,13 +71,10 @@ describe('Export Pipeline', () => {
     jest.clearAllMocks();
   });
 
-  it('updates export status to processing when job starts', async () => {
+  it('reports progress as processing when job starts', async () => {
     await processor.process(mockJob as any);
-    expect(mockPrisma.exportJob.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'export-1' },
-        data: expect.objectContaining({ status: 'processing' }),
-      }),
+    expect(mockProgress.updateExportProgress).toHaveBeenCalledWith(
+      'export-1', 0, 'processing',
     );
   });
 
@@ -74,7 +86,7 @@ describe('Export Pipeline', () => {
   });
 
   it('updates export status to failed on error', async () => {
-    mockFfmpeg.renderExport.mockRejectedValueOnce(new Error('ffmpeg failed'));
+    mockFfmpeg.trimAndConcat.mockRejectedValueOnce(new Error('ffmpeg failed'));
     try { await processor.process(mockJob as any); } catch {}
     const calls = mockPrisma.exportJob.update.mock.calls;
     const failedCall = calls.find((c: any[]) => c[0].data?.status === 'failed');

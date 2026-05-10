@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ExportsService } from '../../exports/exports.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ProjectsService } from '../../projects/projects.service';
 import { OrchestratorService } from '../orchestrator.service';
 import { PusherService } from '../../collaboration/pusher.service';
 
@@ -22,6 +23,11 @@ const mockPrisma = {
   },
 };
 
+const mockProjectsService = {
+  findById: jest.fn().mockResolvedValue({ id: 'proj-1', workspaceId: 'ws-1' }),
+  assertProjectAccess: jest.fn().mockResolvedValue(undefined),
+};
+
 const mockOrchestrator = { startExport: jest.fn().mockResolvedValue(undefined) };
 const mockPusher = { trigger: jest.fn(), getUserChannel: jest.fn().mockReturnValue('private-user-1') };
 
@@ -33,6 +39,7 @@ describe('Idempotency', () => {
       providers: [
         ExportsService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: ProjectsService, useValue: mockProjectsService },
         { provide: OrchestratorService, useValue: mockOrchestrator },
         { provide: PusherService, useValue: mockPusher },
       ],

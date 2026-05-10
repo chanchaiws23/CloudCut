@@ -5,11 +5,7 @@ import { FfmpegService } from '../ffmpeg.service';
 import { OrchestratorService } from '../orchestrator.service';
 import { ProgressService } from '../progress.service';
 
-const mockPrisma = {
-  asset: {
-    update: jest.fn().mockResolvedValue({}),
-  },
-};
+const mockPrisma = {};
 
 const mockFfmpeg = {
   extractMetadata: jest.fn(),
@@ -19,7 +15,10 @@ const mockOrchestrator = {
   startParallelProcessing: jest.fn().mockResolvedValue(undefined),
 };
 
-const mockProgress = { reportProgress: jest.fn() };
+const mockProgress = {
+  updateAssetStatus: jest.fn().mockResolvedValue(undefined),
+  updateExportProgress: jest.fn().mockResolvedValue(undefined),
+};
 
 const mockJob = {
   id: 'job-1',
@@ -52,7 +51,11 @@ describe('Retry Logic', () => {
       audioCodec: 'aac', audioChannels: 2, fileSizeBytes: 10000000,
     });
     await processor.process(mockJob as any);
-    expect(mockPrisma.asset.update).toHaveBeenCalled();
+    expect(mockProgress.updateAssetStatus).toHaveBeenCalledWith(
+      'asset-1',
+      'processing',
+      expect.any(Object),
+    );
     expect(mockOrchestrator.startParallelProcessing).toHaveBeenCalledWith(
       'asset-1',
       'https://storage/test.mp4',
@@ -71,10 +74,9 @@ describe('Retry Logic', () => {
     try {
       await processor.process(finalAttemptJob as any);
     } catch {}
-    expect(mockPrisma.asset.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'failed' }),
-      }),
+    expect(mockProgress.updateAssetStatus).toHaveBeenCalledWith(
+      'asset-1',
+      'failed',
     );
   });
 });

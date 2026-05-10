@@ -3,6 +3,8 @@ import type { Project, Track, Clip, ClipEffect, Transition, TextOverlay, Asset }
 import { api } from '../services/api';
 import { commandManager } from './commands/CommandManager';
 import { v4 as uuidv4 } from 'uuid';
+import * as Y from 'yjs';
+import { useYjsStore } from './yjsStore';
 
 interface ProjectState {
   project: Project | null;
@@ -62,6 +64,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         textOverlays: project.textOverlays || [],
         isLoading: false,
       });
+      useYjsStore.getState().init(id);
     } catch (e: any) {
       set({ error: e.message, isLoading: false });
     }

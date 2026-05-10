@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Film, Download, Undo2, Redo2, Scissors, Hand, MousePointer2, LogOut } from 'lucide-react';
+import { Film, Download, Undo2, Redo2, Scissors, Hand, MousePointer2, LogOut, Sun, Moon } from 'lucide-react';
 import { commandManager } from '../../state/commands/CommandManager';
 import { useUIStore } from '../../state/uiStore';
 import { api } from '../../services/api';
@@ -13,7 +13,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ user, project, projects, onProjectChange, onLogout }: TopBarProps) {
-  const { activeTool, setActiveTool } = useUIStore();
+  const { activeTool, setActiveTool, theme, toggleTheme } = useUIStore();
   const [exporting, setExporting] = useState(false);
 
   const handleExport = async () => {
@@ -108,6 +108,14 @@ export function TopBar({ user, project, projects, onProjectChange, onLogout }: T
       >
         <Download className="w-3.5 h-3.5" />
         {exporting ? 'Exporting...' : 'Export'}
+      </button>
+
+      <button
+        onClick={toggleTheme}
+        title="Toggle theme"
+        className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
       </button>
 
       <div className="flex items-center gap-2">

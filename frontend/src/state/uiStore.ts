@@ -9,6 +9,7 @@ interface UIState {
   snapEnabled: boolean;
   snapGuideMs: number | null;
   panelSizes: { left: number; center: number; right: number; bottom: number };
+  theme: 'light' | 'dark';
 
   selectClip: (id: string, additive?: boolean) => void;
   selectClips: (ids: string[]) => void;
@@ -19,7 +20,11 @@ interface UIState {
   toggleSnap: () => void;
   setSnapGuideMs: (ms: number | null) => void;
   setPanelSizes: (sizes: Partial<UIState['panelSizes']>) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
 }
+
+const savedTheme = localStorage.getItem('cloudcut-theme') as 'light' | 'dark' | null;
 
 export const useUIStore = create<UIState>((set) => ({
   selectedClipIds: [],
@@ -29,6 +34,7 @@ export const useUIStore = create<UIState>((set) => ({
   snapEnabled: true,
   snapGuideMs: null,
   panelSizes: { left: 20, center: 55, right: 25, bottom: 40 },
+  theme: savedTheme || 'dark',
 
   selectClip: (id, additive = false) =>
     set((s) => ({
@@ -48,4 +54,14 @@ export const useUIStore = create<UIState>((set) => ({
   setSnapGuideMs: (ms) => set({ snapGuideMs: ms }),
   setPanelSizes: (sizes) =>
     set((s) => ({ panelSizes: { ...s.panelSizes, ...sizes } })),
+  setTheme: (theme) => {
+    localStorage.setItem('cloudcut-theme', theme);
+    set({ theme });
+  },
+  toggleTheme: () =>
+    set((s) => {
+      const next = s.theme === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('cloudcut-theme', next);
+      return { theme: next };
+    }),
 }));

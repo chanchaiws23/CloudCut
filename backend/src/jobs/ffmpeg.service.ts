@@ -294,4 +294,87 @@ export class FfmpegService implements OnModuleInit {
     this.logger.log(`Effects applied → ${outputPath}`);
     return outputPath;
   }
+
+  async overlayTracks(inputPaths: string[], outputPath: string): Promise<string> {
+    await this.ensureLoaded();
+    this.logger.log(`Overlaying ${inputPaths.length} tracks`);
+
+    for (let i = 0; i < inputPaths.length; i++) {
+      const data = fs.readFileSync(inputPaths[i]);
+      await this.ffmpeg.writeFile(`overlay_${i}.mp4`, new Uint8Array(data));
+    }
+
+    let filterComplex = `[0:v]setpts=PTS-STARTPTS[base];`;
+    for (let i = 1; i < inputPaths.length; i++) {
+      filterComplex += `[${i}:v]setpts=PTS-STARTPTS,format=yuva420p[ov${i}];`;
+      filterComplex += `[base][ov${i}]overlay=0:0:format=auto[base];`;
+    }
+    filterComplex = filterComplex.replace(/\[base\];$/, '[outv]');
+
+    const inputs = inputPaths.flatMap((_, i) => ['-i', `overlay_${i}.mp4`]);
+    await this.ffmpeg.exec([
+      ...inputs,
+      '-filter_complex', filterComplex,
+      '-map', '[outv]',
+      '-map', '0:a?',
+      '-c:v', 'libx264',
+      '-c:a', 'aac',
+      'overlay_output.mp4',
+    ]);
+
+    const outputData = await this.ffmpeg.readFile('overlay_output.mp4') as Uint8Array;
+    for (let i = 0; i < inputPaths.length; i++) {
+      await this.ffmpeg.deleteFile(`overlay_${i}.mp4`).catch(() => {});
+    }
+    await this.ffmpeg.deleteFile('overlay_output.mp4').catch(() => {});
+
+    fs.writeFileSync(outputPath, outputData);
+    this.logger.log(`Overlay done → ${outputPath}`);
+    return outputPath;
+  }
+
+  async burnTextOverlays(
+    inputPath: string,
+    outputPath: string,
+    overlays: Array<{
+      content: string;
+      positionX: number;
+      positionY: number;
+      fontSize: number;
+      fontColor: string;
+      durationMs: number;
+      trackPositionMs: number;
+    }>,
+  ): Promise<string> {
+    await this.ensureLoaded();
+    this.logger.log(`Burning ${overlays.length} text overlays`);
+
+    if (overlays.length === 0) return inputPath;
+
+    const inputData = fs.readFileSync(inputPath);
+    await this.ffmpeg.writeFile('text_input.mp4', new Uint8Array(inputData));
+
+    const drawtexts = overlays.map((o, i) => {
+      const x = Math.round(o.positionX * 100);
+      const y = Math.round(o.positionY * 100);
+      const start = o.trackPositionMs / 1000;
+      const end = (o.trackPositionMs + o.durationMs) / 1000;
+      return `drawtext=text='${o.content}':fontsize=${o.fontSize}:fontcolor=${o.fontColor}:x=(w*${x}/100):y=(h*${y}/100):enable='between(t\\,${start}\\,${end})'`;
+    });
+
+    await this.ffmpeg.exec([
+      '-i', 'text_input.mp4',
+      '-vf', drawtexts.join(','),
+      '-c:a', 'copy',
+      'text_output.mp4',
+    ]);
+
+    const outputData = await this.ffmpeg.readFile('text_output.mp4') as Uint8Array;
+    await this.ffmpeg.deleteFile('text_input.mp4');
+    await this.ffmpeg.deleteFile('text_output.mp4');
+
+    fs.writeFileSync(outputPath, outputData);
+    this.logger.log(`Text overlays burned → ${outputPath}`);
+    return outputPath;
+  }
 }

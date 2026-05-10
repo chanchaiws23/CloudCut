@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { EditorLayout } from './components/layout/EditorLayout';
 import { api, setTokens } from './services/api';
+import { useUIStore } from './state/uiStore';
 
 function LoginForm({ onLogin }: { onLogin: (user: any) => void }) {
   const [email, setEmail] = useState('alice@cloudcut.dev');
@@ -69,6 +70,13 @@ function LoginForm({ onLogin }: { onLogin: (user: any) => void }) {
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [checking, setChecking] = useState(true);
+  const theme = useUIStore((s) => s.theme);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(theme);
+  }, [theme]);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');

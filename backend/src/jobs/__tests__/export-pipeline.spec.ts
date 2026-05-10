@@ -23,6 +23,14 @@ const mockPrisma = {
       tracks: [],
     }),
   },
+  track: {
+    findMany: jest.fn().mockResolvedValue([
+      { id: 'track-1', type: 'video', label: 'V1', orderIndex: 0 },
+    ]),
+  },
+  textOverlay: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
   clip: {
     findMany: jest.fn().mockResolvedValue([
       {

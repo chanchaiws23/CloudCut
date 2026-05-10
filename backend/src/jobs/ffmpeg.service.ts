@@ -1,6 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -27,6 +26,7 @@ export class FfmpegService implements OnModuleInit {
       this.logger.debug(`[ffmpeg] ${message}`);
     });
     try {
+      const { toBlobURL } = await import('@ffmpeg/util');
       await this.ffmpeg.load({
         coreURL: await toBlobURL(
           `https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js`,
@@ -54,6 +54,7 @@ export class FfmpegService implements OnModuleInit {
     await this.ensureLoaded();
     this.logger.log(`Extracting metadata: ${inputUrl}`);
 
+    const { fetchFile } = await import('@ffmpeg/util');
     const inputData = await fetchFile(inputUrl);
     await this.ffmpeg.writeFile('input_meta', inputData);
 
@@ -97,6 +98,7 @@ export class FfmpegService implements OnModuleInit {
     await this.ensureLoaded();
     this.logger.log(`Generating 720p proxy for asset: ${assetId}`);
 
+    const { fetchFile } = await import('@ffmpeg/util');
     const inputData = await fetchFile(inputUrl);
     await this.ffmpeg.writeFile('proxy_input.mp4', inputData);
 
@@ -123,6 +125,7 @@ export class FfmpegService implements OnModuleInit {
     await this.ensureLoaded();
     this.logger.log(`Generating thumbnails every ${intervalSeconds}s for asset: ${assetId}`);
 
+    const { fetchFile } = await import('@ffmpeg/util');
     const inputData = await fetchFile(inputUrl);
     await this.ffmpeg.writeFile('thumb_input.mp4', inputData);
 
@@ -156,6 +159,7 @@ export class FfmpegService implements OnModuleInit {
     await this.ensureLoaded();
     this.logger.log(`Extracting waveform for asset: ${assetId}`);
 
+    const { fetchFile } = await import('@ffmpeg/util');
     const inputData = await fetchFile(inputUrl);
     await this.ffmpeg.writeFile('wave_input.mp4', inputData);
 
@@ -203,6 +207,7 @@ export class FfmpegService implements OnModuleInit {
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
       const segName = `seg_${i}.mp4`;
+      const { fetchFile } = await import('@ffmpeg/util');
       const inputData = await fetchFile(seg.inputPath);
       await this.ffmpeg.writeFile(`raw_${i}.mp4`, inputData);
 

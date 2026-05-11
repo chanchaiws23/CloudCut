@@ -60,7 +60,7 @@ function LoginForm({ onLogin }: { onLogin: (user: any) => void }) {
           </button>
         </form>
         <p className="text-xs text-muted-foreground text-center">
-          Demo: alice@cloudcut.dev / password123
+          Demo: alice@cloudcut.dev (free) / bob@cloudcut.dev (pro) — password123
         </p>
       </div>
     </div>

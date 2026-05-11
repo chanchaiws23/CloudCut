@@ -6,6 +6,7 @@ import { VideoPlayer } from '../player/VideoPlayer';
 import { InspectorPanel } from '../inspector/InspectorPanel';
 import { Timeline } from '../timeline/Timeline';
 import { CollaboratorList } from '../collaboration/CollaboratorList';
+import { UndoHistoryPanel } from '../undo/UndoHistoryPanel';
 import { useProjectStore } from '../../state/projectStore';
 import { api } from '../../services/api';
 
@@ -52,6 +53,9 @@ export function EditorLayout({ user, onLogout }: EditorLayoutProps) {
               <Panel defaultSize={25} minSize={15}>
                 <div className="flex flex-col h-full">
                   <InspectorPanel projectId={currentProjectId} />
+                  <div className="border-t border-border flex-1 min-h-0">
+                    <UndoHistoryPanel />
+                  </div>
                   <div className="border-t border-border">
                     <CollaboratorList projectId={currentProjectId} />
                   </div>

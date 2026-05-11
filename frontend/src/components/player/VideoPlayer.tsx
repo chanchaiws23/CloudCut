@@ -4,6 +4,13 @@ import { useProjectStore } from '../../state/projectStore';
 import { PlayerControls } from './PlayerControls';
 import { msToTimecode } from '../../utils/timecode';
 
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+function toAbsoluteUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  return url.startsWith('http') ? url : `${BASE_URL}${url}`;
+}
+
 export function VideoPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const animFrameRef = useRef<number>(0);
@@ -13,14 +20,23 @@ export function VideoPlayer() {
 
   const currentClip = clips
     .filter((c) => c.trackPositionMs <= currentTimeMs && currentTimeMs < c.trackPositionMs + c.durationMs)
-    .sort((a, b) => b.trackPositionMs - a.trackPositionMs)[0];
+    .sort((a, b) => {
+      const aAsset = a.asset ?? assets.find((asset) => asset.id === a.assetId);
+      const bAsset = b.asset ?? assets.find((asset) => asset.id === b.assetId);
+      const aIsVisual = aAsset?.type === 'video' || aAsset?.type === 'image';
+      const bIsVisual = bAsset?.type === 'video' || bAsset?.type === 'image';
+      if (aIsVisual && !bIsVisual) return -1;
+      if (!aIsVisual && bIsVisual) return 1;
+      return b.trackPositionMs - a.trackPositionMs;
+    })[0];
 
-  const currentAsset = currentClip?.assetId
-    ? assets.find((a) => a.id === currentClip.assetId)
-    : undefined;
+  const currentAsset = currentClip?.asset
+    ?? (currentClip?.assetId ? assets.find((a) => a.id === currentClip.assetId) : undefined);
 
-  const proxyUrl = currentAsset?.variants?.find((v) => v.type === 'proxy')?.url
-    || currentAsset?.originalUrl;
+  const proxyUrl = toAbsoluteUrl(
+    currentAsset?.variants?.find((v) => v.type === 'proxy')?.url
+    || currentAsset?.originalUrl,
+  );
 
   useEffect(() => {
     const video = videoRef.current;
@@ -100,10 +116,14 @@ export function VideoPlayer() {
           <video
             ref={videoRef}
             src={proxyUrl}
+            crossOrigin="anonymous"
             className="max-w-full max-h-full object-contain"
             style={{ filter: cssFilter || undefined }}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => pause()}
+            onError={() => {
+              console.warn('[VideoPlayer] failed to load:', proxyUrl);
+            }}
           />
         ) : (
           <div className="text-muted-foreground text-sm flex flex-col items-center gap-2">

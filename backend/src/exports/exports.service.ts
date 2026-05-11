@@ -3,6 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
+import { PlanLimitsService } from '../common/guards/plan-limits.service';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { CreateExportDto } from './dto/export.dto';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,11 +13,17 @@ export class ExportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectsService: ProjectsService,
+    private readonly planLimits: PlanLimitsService,
     private readonly orchestrator: OrchestratorService,
   ) {}
 
   async create(projectId: string, dto: CreateExportDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (project) {
+      await this.planLimits.assertCanCreateExport(project.workspaceId, dto.resolution, dto.format);
+    }
 
     const idempotencyKey = dto.idempotencyKey || uuidv4();
     const existing = await this.prisma.exportJob.findUnique({ where: { idempotencyKey } });

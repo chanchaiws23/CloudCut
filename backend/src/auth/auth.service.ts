@@ -66,7 +66,14 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        memberships: {
+          include: { workspace: { select: { id: true, name: true, plan: true } } },
+        },
+      },
+    });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
@@ -85,13 +92,19 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private sanitizeUser(user: { id: string; email: string; name: string; avatarUrl: string | null; createdAt: Date }) {
+  private sanitizeUser(user: any) {
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
       createdAt: user.createdAt,
+      workspaces: user.memberships?.map((m: any) => ({
+        id: m.workspace.id,
+        name: m.workspace.name,
+        plan: m.workspace.plan,
+        role: m.role,
+      })) || [],
     };
   }
 }

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ExportsService } from '../../exports/exports.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ProjectsService } from '../../projects/projects.service';
+import { PlanLimitsService } from '../../common/guards/plan-limits.service';
 import { OrchestratorService } from '../orchestrator.service';
 import { PusherService } from '../../collaboration/pusher.service';
 
@@ -17,15 +18,24 @@ const mockPrisma = {
   },
   project: {
     findFirst: jest.fn().mockResolvedValue({ id: 'proj-1', workspaceId: 'ws-1' }),
+    findUnique: jest.fn().mockResolvedValue({ id: 'proj-1', workspaceId: 'ws-1' }),
   },
   workspaceMember: {
     findFirst: jest.fn().mockResolvedValue({ role: 'editor' }),
+  },
+  workspace: {
+    findUnique: jest.fn().mockResolvedValue({ id: 'ws-1', plan: 'pro' }),
   },
 };
 
 const mockProjectsService = {
   findById: jest.fn().mockResolvedValue({ id: 'proj-1', workspaceId: 'ws-1' }),
   assertProjectAccess: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockPlanLimits = {
+  assertCanCreateExport: jest.fn().mockResolvedValue(undefined),
+  getWorkspacePlan: jest.fn().mockResolvedValue('pro'),
 };
 
 const mockOrchestrator = { startExport: jest.fn().mockResolvedValue(undefined) };
@@ -40,6 +50,7 @@ describe('Idempotency', () => {
         ExportsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ProjectsService, useValue: mockProjectsService },
+        { provide: PlanLimitsService, useValue: mockPlanLimits },
         { provide: OrchestratorService, useValue: mockOrchestrator },
         { provide: PusherService, useValue: mockPusher },
       ],

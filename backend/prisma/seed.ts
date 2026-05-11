@@ -43,59 +43,75 @@ async function main() {
     },
   });
 
-  // === Workspace ===
-  const workspace = await prisma.workspace.create({
+  // === Free Workspace (Alice) ===
+  const freeWorkspace = await prisma.workspace.create({
     data: {
       id: '00000000-0000-0000-0000-000000000010',
-      name: 'Creative Studio',
-      slug: 'creative-studio',
-      plan: 'pro',
+      name: 'Alice Free Studio',
+      slug: 'alice-free-studio',
+      plan: 'free',
       ownerId: alice.id,
+    },
+  });
+
+  // === Pro Workspace (Bob) ===
+  const proWorkspace = await prisma.workspace.create({
+    data: {
+      id: '00000000-0000-0000-0000-000000000011',
+      name: 'Bob Pro Studio',
+      slug: 'bob-pro-studio',
+      plan: 'pro',
+      ownerId: bob.id,
     },
   });
 
   // === Workspace Members ===
   await prisma.workspaceMember.createMany({
     data: [
-      { workspaceId: workspace.id, userId: alice.id, role: 'owner' },
-      { workspaceId: workspace.id, userId: bob.id, role: 'editor' },
+      { workspaceId: freeWorkspace.id, userId: alice.id, role: 'owner' },
+      { workspaceId: proWorkspace.id, userId: bob.id, role: 'owner' },
     ],
   });
 
-  // === Project 1: Product Demo ===
+  // === Free Project: Product Demo ===
   const project1 = await prisma.project.create({
     data: {
       id: '00000000-0000-0000-0000-000000000020',
-      workspaceId: workspace.id,
+      workspaceId: freeWorkspace.id,
       name: 'Product Demo Video',
-      description: 'Q4 product launch demo video',
+      description: 'Q4 product launch demo video (Free plan)',
       settings: { resolution: '1920x1080', fps: 30, aspectRatio: '16:9' },
       createdById: alice.id,
     },
   });
 
-  // === Project 2: Social Media ===
+  // === Pro Project: Social Media ===
   const project2 = await prisma.project.create({
     data: {
       id: '00000000-0000-0000-0000-000000000021',
-      workspaceId: workspace.id,
+      workspaceId: proWorkspace.id,
       name: 'Social Media Reel',
-      description: 'Instagram reel for marketing campaign',
+      description: 'Instagram reel for marketing campaign (Pro plan)',
       settings: { resolution: '1080x1920', fps: 30, aspectRatio: '9:16' },
       createdById: bob.id,
     },
   });
 
-  // === Assets for Project 1 ===
+  // === Public sample URLs for demo (CORS-enabled) ===
+  const SAMPLE_VIDEO_15S = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
+  const SAMPLE_VIDEO_10MIN = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+  const SAMPLE_IMAGE = 'https://picsum.photos/400/400';
+
+  // === Assets for Project 1 (Free workspace) ===
   const asset1 = await prisma.asset.create({
     data: {
       id: '00000000-0000-0000-0000-000000000030',
       projectId: project1.id,
       uploadedById: alice.id,
       type: 'video',
-      originalUrl: '/assets/intro-clip.mp4',
+      originalUrl: SAMPLE_VIDEO_15S,
       status: 'ready',
-      metadata: { duration_ms: 15000, width: 1920, height: 1080, codec: 'h264', file_size_bytes: 5242880 },
+      metadata: { duration_ms: 15000, width: 1280, height: 720, codec: 'h264', file_size_bytes: 2100000 },
     },
   });
 
@@ -105,9 +121,9 @@ async function main() {
       projectId: project1.id,
       uploadedById: alice.id,
       type: 'video',
-      originalUrl: '/assets/product-shot.mp4',
+      originalUrl: SAMPLE_VIDEO_10MIN,
       status: 'ready',
-      metadata: { duration_ms: 30000, width: 1920, height: 1080, codec: 'h264', file_size_bytes: 10485760 },
+      metadata: { duration_ms: 596000, width: 1280, height: 720, codec: 'h264', file_size_bytes: 158008374 },
     },
   });
 
@@ -115,11 +131,11 @@ async function main() {
     data: {
       id: '00000000-0000-0000-0000-000000000032',
       projectId: project1.id,
-      uploadedById: bob.id,
+      uploadedById: alice.id,
       type: 'audio',
-      originalUrl: '/assets/background-music.mp3',
+      originalUrl: SAMPLE_VIDEO_10MIN,
       status: 'ready',
-      metadata: { duration_ms: 120000, codec: 'mp3', file_size_bytes: 3145728 },
+      metadata: { duration_ms: 596000, codec: 'aac', file_size_bytes: 158008374 },
     },
   });
 
@@ -129,9 +145,34 @@ async function main() {
       projectId: project1.id,
       uploadedById: alice.id,
       type: 'image',
-      originalUrl: '/assets/logo-overlay.png',
+      originalUrl: SAMPLE_IMAGE,
       status: 'ready',
-      metadata: { width: 400, height: 400, file_size_bytes: 51200 },
+      metadata: { width: 400, height: 400, file_size_bytes: 20000 },
+    },
+  });
+
+  // === Assets for Project 2 (Pro workspace) ===
+  const asset5 = await prisma.asset.create({
+    data: {
+      id: '00000000-0000-0000-0000-000000000034',
+      projectId: project2.id,
+      uploadedById: bob.id,
+      type: 'video',
+      originalUrl: SAMPLE_VIDEO_15S,
+      status: 'ready',
+      metadata: { duration_ms: 15000, width: 1280, height: 720, codec: 'h264', file_size_bytes: 2100000 },
+    },
+  });
+
+  const asset6 = await prisma.asset.create({
+    data: {
+      id: '00000000-0000-0000-0000-000000000035',
+      projectId: project2.id,
+      uploadedById: bob.id,
+      type: 'image',
+      originalUrl: SAMPLE_IMAGE,
+      status: 'ready',
+      metadata: { width: 400, height: 400, file_size_bytes: 20000 },
     },
   });
 
@@ -311,8 +352,8 @@ async function main() {
   });
 
   console.log('✅ Seed data created successfully');
-  console.log(`   Users: 2 (alice, bob)`);
-  console.log(`   Workspace: 1 (Creative Studio)`);
+  console.log(`   Users: 2 (alice@cloudcut.dev = free, bob@cloudcut.dev = pro)`);
+  console.log(`   Workspaces: 2 (Alice Free Studio = free, Bob Pro Studio = pro)`);
   console.log(`   Projects: 2`);
   console.log(`   Assets: 4`);
   console.log(`   Tracks: 3`);

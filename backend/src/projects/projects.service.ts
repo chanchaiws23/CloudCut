@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
+import { PlanLimitsService } from '../common/guards/plan-limits.service';
 import { CreateProjectDto, UpdateProjectDto } from './dto/create-project.dto';
 
 @Injectable()
@@ -8,10 +9,12 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly workspacesService: WorkspacesService,
+    private readonly planLimits: PlanLimitsService,
   ) {}
 
   async create(dto: CreateProjectDto, userId: string) {
     await this.workspacesService.assertRole(dto.workspaceId, userId, ['owner', 'admin', 'editor']);
+    await this.planLimits.assertCanCreateProject(dto.workspaceId);
     return this.prisma.project.create({
       data: {
         name: dto.name,
@@ -44,7 +47,7 @@ export class ProjectsService {
       where: { id, deletedAt: null },
       include: {
         tracks: { orderBy: { orderIndex: 'asc' } },
-        clips: { where: { deletedAt: null }, include: { effects: { orderBy: { orderIndex: 'asc' } } } },
+        clips: { where: { deletedAt: null }, include: { asset: true, effects: { orderBy: { orderIndex: 'asc' } } } },
         transitions: true,
         textOverlays: true,
       },
@@ -73,6 +76,7 @@ export class ProjectsService {
 
   async duplicate(id: string, userId: string) {
     const project = await this.findById(id, userId);
+    await this.planLimits.assertCanCreateProject(project.workspaceId);
     return this.prisma.$transaction(async (tx) => {
       const newProject = await tx.project.create({
         data: {

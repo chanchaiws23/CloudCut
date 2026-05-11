@@ -5,25 +5,33 @@ import { useUIStore } from '../../state/uiStore';
 import { api } from '../../services/api';
 
 interface TopBarProps {
-  user: { id: string; name: string; email: string; avatarUrl?: string };
+  user: { id: string; name: string; email: string; avatarUrl?: string; workspaces?: any[] };
   project: any;
   projects: any[];
   onProjectChange: (id: string) => void;
   onLogout: () => void;
 }
 
+function getUserPlan(user: TopBarProps['user']): string {
+  const ws = user.workspaces?.[0];
+  return ws?.plan || 'free';
+}
+
 export function TopBar({ user, project, projects, onProjectChange, onLogout }: TopBarProps) {
   const { activeTool, setActiveTool, theme, toggleTheme } = useUIStore();
   const [exporting, setExporting] = useState(false);
+  const plan = getUserPlan(user);
+  const isPro = plan === 'pro' || plan === 'team';
 
   const handleExport = async () => {
     if (!project) return;
     setExporting(true);
     try {
-      await api.exports.create(project.id, { format: 'mp4', resolution: '1080p', quality: 'standard' });
+      const resolution = isPro ? '1080p' : '720p';
+      await api.exports.create(project.id, { format: 'mp4', resolution, quality: 'standard' });
       alert('Export started! Check the console for progress.');
     } catch (e: any) {
-      alert(`Export failed: ${e.message}`);
+      alert(`Export failed: ${e.response?.data?.message || e.message}`);
     } finally {
       setExporting(false);
     }
@@ -126,7 +134,12 @@ export function TopBar({ user, project, projects, onProjectChange, onLogout }: T
             {user.name[0]}
           </div>
         )}
-        <span className="text-xs text-muted-foreground hidden sm:block">{user.name}</span>
+        <div className="flex flex-col items-start hidden sm:flex">
+          <span className="text-xs text-muted-foreground leading-tight">{user.name}</span>
+          <span className={`text-[10px] px-1 rounded leading-tight ${isPro ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+            {plan.toUpperCase()}
+          </span>
+        </div>
         <button onClick={onLogout} title="Sign out" className="p-1 text-muted-foreground hover:text-foreground">
           <LogOut className="w-3.5 h-3.5" />
         </button>

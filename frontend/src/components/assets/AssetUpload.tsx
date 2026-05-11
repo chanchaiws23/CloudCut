@@ -21,16 +21,13 @@ export function AssetUpload({ projectId, onUploaded }: AssetUploadProps) {
     setProgress(0);
 
     try {
-      const { url, assetId } = await api.assets.getPresignedUrl({
+      const { assetId, url } = await api.assets.getPresignedUrl({
         projectId,
         fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size,
+        type: file.type.split('/')[0] as 'video' | 'audio' | 'image',
       });
 
-      await uploadToStorage(url, file, setProgress);
-
-      await api.assets.confirmUpload({ assetId, projectId });
+      await uploadToBackend(url, file, setProgress);
 
       await loadAssets(projectId);
       onUploaded?.();
@@ -79,20 +76,25 @@ export function AssetUpload({ projectId, onUploaded }: AssetUploadProps) {
   );
 }
 
-async function uploadToStorage(
+async function uploadToBackend(
   url: string,
   file: File,
   onProgress: (pct: number) => void,
 ): Promise<void> {
+  const token = localStorage.getItem('cloudcut_token') || '';
+  const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const fullUrl = url.startsWith('http') ? url : `${BASE}${url}`;
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.open('POST', fullUrl);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)));
     xhr.onerror = () => reject(new Error('Network error'));
-    xhr.send(file);
+    const formData = new FormData();
+    formData.append('file', file);
+    xhr.send(formData);
   });
 }

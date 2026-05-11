@@ -31,10 +31,19 @@ export function AssetBrowser({ projectId }: AssetBrowserProps) {
     if (!file) return;
     setUploading(true);
     try {
-      const type = file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image';
-      const { assetId, uploadUrl } = await api.assets.getPresignedUrl({ projectId, fileName: file.name, type });
-      await fetch(uploadUrl, { method: 'PUT', body: file });
-      await api.assets.confirmUpload({ projectId, assetId });
+      const type: 'video' | 'audio' | 'image' = file.type.startsWith('video') ? 'video' : file.type.startsWith('audio') ? 'audio' : 'image';
+      const { assetId, url } = await api.assets.getPresignedUrl({ projectId, fileName: file.name, type });
+      const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const fullUrl = url.startsWith('http') ? url : `${BASE}${url}`;
+      const token = localStorage.getItem('cloudcut_token') || '';
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(fullUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       await loadAssets(projectId);
     } catch (err: any) {
       alert(`Upload failed: ${err.message}`);

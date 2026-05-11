@@ -60,17 +60,18 @@
 
 ---
 
-## Task 3: Queue & ffmpeg.wasm
+## Task 3: Queue & fluent-ffmpeg
 
 ### 1. Why BullMQ?
 - **BullMQ:** Built on Redis, mature Node.js ecosystem, supports job priorities, retry with backoff, progress tracking, dead letter queues, rate limiting, delayed jobs.
 - **vs Cloudflare Queues:** Vendor lock-in, limited retry config, no job progress tracking.
 - **vs SQS:** External dependency, higher latency, no built-in progress tracking, more complex for job dependencies.
 
-### 2. ffmpeg.wasm on Node.js
-- Runs entirely in WebAssembly — no native dependencies needed.
-- **Limitations:** Slower than native ffmpeg (2-5x), limited codec support, memory-bound (entire file must fit in memory for WASM).
-- Suitable for proxy generation and basic exports. Production-grade exports should use native ffmpeg via child process or dedicated worker.
+### 2. fluent-ffmpeg on Node.js
+- Uses native ffmpeg binary via child process — fast, full codec support, handles large files via disk streaming.
+- **ffmpeg-static** ensures the ffmpeg binary is bundled and works across platforms without requiring system installation.
+- Suitable for all video processing: metadata extraction, proxy generation, thumbnail extraction, waveform data, export rendering.
+- **vs ffmpeg.wasm:** WASM is browser-only and memory-bound. fluent-ffmpeg is the correct choice for server-side Node.js processing.
 
 ### 3. Memory for 30-minute video
 - 30-min 1080p video ≈ 500MB-2GB raw.

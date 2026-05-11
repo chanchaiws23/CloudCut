@@ -12,7 +12,7 @@ A full-stack **collaborative video editing** platform built for the browser, ins
 └──────────────┘            │                  │
        │                    ▼                  ▼
        │              ┌──────────┐      ┌─────────────┐
-       │              │PostgreSQL│      │ ffmpeg.wasm  │
+       │              │PostgreSQL│      │ fluent-ffmpeg│
        │              └──────────┘      │  Workers     │
        │                                └─────────────┘
        │              ┌──────────┐
@@ -28,7 +28,7 @@ A full-stack **collaborative video editing** platform built for the browser, ins
 | **Backend** | NestJS, TypeScript (strict), Prisma ORM, class-validator |
 | **Database** | PostgreSQL 16 |
 | **Queue** | BullMQ + Redis 7 |
-| **Video Processing** | ffmpeg.wasm |
+| **Video Processing** | fluent-ffmpeg + ffmpeg-static |
 | **Real-time** | Pusher Channels |
 | **Auth** | JWT (access + refresh tokens) |
 

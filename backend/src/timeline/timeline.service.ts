@@ -4,7 +4,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { SyncService } from '../collaboration/sync.service';
 import {
   CreateTrackDto, UpdateTrackDto,
-  CreateClipDto, UpdateClipDto, SplitClipDto,
+  CreateClipDto, UpdateClipDto, SplitClipDto, BatchClipOperationDto,
   CreateEffectDto, UpdateEffectDto, ReorderEffectsDto,
   CreateTransitionDto, UpdateTransitionDto,
   CreateTextOverlayDto, UpdateTextOverlayDto,
@@ -18,6 +18,36 @@ export class TimelineService {
     private readonly syncService: SyncService,
   ) {}
 
+  private async assertTrackInProject(trackId: string, projectId: string) {
+    const track = await this.prisma.track.findFirst({ where: { id: trackId, projectId } });
+    if (!track) throw new NotFoundException('Track not found in project');
+    return track;
+  }
+
+  private async assertClipInProject(clipId: string, projectId: string) {
+    const clip = await this.prisma.clip.findFirst({ where: { id: clipId, projectId, deletedAt: null } });
+    if (!clip) throw new NotFoundException('Clip not found in project');
+    return clip;
+  }
+
+  private async assertEffectOnClip(effectId: string, clipId: string) {
+    const effect = await this.prisma.clipEffect.findFirst({ where: { id: effectId, clipId } });
+    if (!effect) throw new NotFoundException('Effect not found on clip');
+    return effect;
+  }
+
+  private async assertTransitionInProject(transitionId: string, projectId: string) {
+    const transition = await this.prisma.transition.findFirst({ where: { id: transitionId, projectId } });
+    if (!transition) throw new NotFoundException('Transition not found in project');
+    return transition;
+  }
+
+  private async assertTextOverlayInProject(overlayId: string, projectId: string) {
+    const overlay = await this.prisma.textOverlay.findFirst({ where: { id: overlayId, projectId } });
+    if (!overlay) throw new NotFoundException('Text overlay not found in project');
+    return overlay;
+  }
+
   // === Tracks ===
   async createTrack(projectId: string, dto: CreateTrackDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
@@ -30,6 +60,7 @@ export class TimelineService {
 
   async updateTrack(projectId: string, trackId: string, dto: UpdateTrackDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTrackInProject(trackId, projectId);
     const track = await this.prisma.track.update({
       where: { id: trackId },
       data: { ...dto },
@@ -40,6 +71,7 @@ export class TimelineService {
 
   async deleteTrack(projectId: string, trackId: string, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTrackInProject(trackId, projectId);
     await this.prisma.track.delete({ where: { id: trackId } });
     await this.syncService.broadcastOperation(projectId, userId, 'track.delete', { trackId });
     return { deleted: true };
@@ -48,6 +80,7 @@ export class TimelineService {
   // === Clips ===
   async createClip(projectId: string, dto: CreateClipDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTrackInProject(dto.trackId, projectId);
     const durationMs = dto.outPointMs - dto.inPointMs;
     const clip = await this.prisma.clip.create({
       data: {
@@ -68,6 +101,8 @@ export class TimelineService {
 
   async updateClip(projectId: string, clipId: string, dto: UpdateClipDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
+    if (dto.trackId !== undefined) await this.assertTrackInProject(dto.trackId, projectId);
     const updateData: Record<string, any> = {};
     if (dto.trackId !== undefined) updateData.trackId = dto.trackId;
     if (dto.trackPositionMs !== undefined) updateData.trackPositionMs = dto.trackPositionMs;
@@ -90,6 +125,7 @@ export class TimelineService {
 
   async deleteClip(projectId: string, clipId: string, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
     await this.prisma.clip.update({ where: { id: clipId }, data: { deletedAt: new Date() } });
     await this.syncService.broadcastOperation(projectId, userId, 'clip.delete', { clipId });
     return { deleted: true };
@@ -97,8 +133,7 @@ export class TimelineService {
 
   async splitClip(projectId: string, clipId: string, dto: SplitClipDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
-    const clip = await this.prisma.clip.findUnique({ where: { id: clipId } });
-    if (!clip) throw new NotFoundException('Clip not found');
+    const clip = await this.assertClipInProject(clipId, projectId);
 
     const splitPoint = dto.atTimeMs;
     const relativeToClipStart = splitPoint - clip.trackPositionMs;
@@ -136,6 +171,7 @@ export class TimelineService {
   // === Effects ===
   async addEffect(projectId: string, clipId: string, dto: CreateEffectDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
     const existingEffects = await this.prisma.clipEffect.count({ where: { clipId } });
     const effect = await this.prisma.clipEffect.create({
       data: {
@@ -152,6 +188,8 @@ export class TimelineService {
 
   async updateEffect(projectId: string, clipId: string, effectId: string, dto: UpdateEffectDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
+    await this.assertEffectOnClip(effectId, clipId);
     const effect = await this.prisma.clipEffect.update({
       where: { id: effectId },
       data: { params: dto.params as any, enabled: dto.enabled },
@@ -162,6 +200,8 @@ export class TimelineService {
 
   async deleteEffect(projectId: string, clipId: string, effectId: string, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
+    await this.assertEffectOnClip(effectId, clipId);
     await this.prisma.clipEffect.delete({ where: { id: effectId } });
     await this.syncService.broadcastOperation(projectId, userId, 'effect.delete', { clipId, effectId });
     return { deleted: true };
@@ -169,6 +209,8 @@ export class TimelineService {
 
   async reorderEffects(projectId: string, clipId: string, dto: ReorderEffectsDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertClipInProject(clipId, projectId);
+    for (const effectId of dto.effectIds) await this.assertEffectOnClip(effectId, clipId);
     await this.prisma.$transaction(
       dto.effectIds.map((id, index) =>
         this.prisma.clipEffect.update({ where: { id }, data: { orderIndex: index } }),
@@ -176,6 +218,42 @@ export class TimelineService {
     );
     await this.syncService.broadcastOperation(projectId, userId, 'effect.reorder', { clipId, effectIds: dto.effectIds });
     return { reordered: true };
+  }
+
+  // === Batch Operations ===
+  async batchClipOperations(projectId: string, dto: BatchClipOperationDto, userId: string) {
+    await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    for (const op of dto.operations) {
+      await this.assertClipInProject(op.clipId, projectId);
+      if (op.data?.trackId) await this.assertTrackInProject(op.data.trackId, projectId);
+    }
+    const results = await this.prisma.$transaction(async (tx) => {
+      const opResults: any[] = [];
+      for (const op of dto.operations) {
+        if (op.action === 'move') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { trackPositionMs: op.data?.trackPositionMs },
+          });
+          opResults.push(clip);
+        } else if (op.action === 'delete') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { deletedAt: new Date() },
+          });
+          opResults.push(clip);
+        } else if (op.action === 'update') {
+          const clip = await tx.clip.update({
+            where: { id: op.clipId },
+            data: { ...op.data },
+          });
+          opResults.push(clip);
+        }
+      }
+      return opResults;
+    });
+    await this.syncService.broadcastOperation(projectId, userId, 'clip.batch', { operations: dto.operations });
+    return { results };
   }
 
   // === Transitions ===
@@ -197,6 +275,7 @@ export class TimelineService {
 
   async updateTransition(projectId: string, transitionId: string, dto: UpdateTransitionDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTransitionInProject(transitionId, projectId);
     const transition = await this.prisma.transition.update({
       where: { id: transitionId },
       data: { ...dto, params: dto.params as any },
@@ -207,6 +286,7 @@ export class TimelineService {
 
   async deleteTransition(projectId: string, transitionId: string, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTransitionInProject(transitionId, projectId);
     await this.prisma.transition.delete({ where: { id: transitionId } });
     await this.syncService.broadcastOperation(projectId, userId, 'transition.delete', { transitionId });
     return { deleted: true };
@@ -224,6 +304,7 @@ export class TimelineService {
 
   async updateTextOverlay(projectId: string, overlayId: string, dto: UpdateTextOverlayDto, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTextOverlayInProject(overlayId, projectId);
     const overlay = await this.prisma.textOverlay.update({
       where: { id: overlayId },
       data: { ...dto },
@@ -234,6 +315,7 @@ export class TimelineService {
 
   async deleteTextOverlay(projectId: string, overlayId: string, userId: string) {
     await this.projectsService.assertProjectAccess(projectId, userId, ['owner', 'admin', 'editor']);
+    await this.assertTextOverlayInProject(overlayId, projectId);
     await this.prisma.textOverlay.delete({ where: { id: overlayId } });
     await this.syncService.broadcastOperation(projectId, userId, 'textOverlay.delete', { overlayId });
     return { deleted: true };

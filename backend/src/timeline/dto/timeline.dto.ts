@@ -1,4 +1,5 @@
-import { IsString, IsInt, IsOptional, IsBoolean, IsObject, IsIn, IsArray, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsString, IsInt, IsOptional, IsBoolean, IsObject, IsIn, IsArray, Min, ValidateNested } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateTrackDto {
@@ -116,15 +117,32 @@ export class SplitClipDto {
   atTimeMs!: number;
 }
 
-export class BatchClipOperationDto {
+export class BatchClipOperationItemDto {
   @ApiProperty()
+  @IsString()
+  clipId!: string;
+
+  @ApiProperty({ enum: ['move', 'delete', 'update'] })
+  @IsIn(['move', 'delete', 'update'])
+  action!: 'move' | 'delete' | 'update';
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsObject()
+  data?: Record<string, any>;
+}
+
+export class BatchClipOperationDto {
+  @ApiProperty({ type: [BatchClipOperationItemDto] })
   @IsArray()
-  operations!: Array<{ clipId: string; action: string; data?: Record<string, any> }>;
+  @ValidateNested({ each: true })
+  @Type(() => BatchClipOperationItemDto)
+  operations!: BatchClipOperationItemDto[];
 }
 
 export class CreateEffectDto {
   @ApiProperty({ enum: ['brightness', 'contrast', 'saturation', 'blur', 'grayscale', 'sepia'] })
-  @IsString()
+  @IsIn(['brightness', 'contrast', 'saturation', 'blur', 'grayscale', 'sepia'])
   type!: string;
 
   @ApiProperty({ required: false })
@@ -189,6 +207,7 @@ export class UpdateTransitionDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
+  @Min(0)
   durationMs?: number;
 
   @ApiProperty({ required: false })
@@ -220,6 +239,7 @@ export class CreateTextOverlayDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
+  @Min(1)
   fontSize?: number;
 
   @ApiProperty({ required: false })
@@ -229,6 +249,7 @@ export class CreateTextOverlayDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @IsIn(['left', 'center', 'right'])
   @IsString()
   alignment?: string;
 
@@ -242,11 +263,13 @@ export class UpdateTextOverlayDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
+  @Min(0)
   trackPositionMs?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
+  @Min(1)
   durationMs?: number;
 
   @ApiProperty({ required: false })
@@ -262,12 +285,18 @@ export class UpdateTextOverlayDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsInt()
+  @Min(1)
   fontSize?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
   fontColor?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsIn(['left', 'center', 'right'])
+  alignment?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

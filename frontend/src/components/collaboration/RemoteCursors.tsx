@@ -1,18 +1,16 @@
-import { usePresence } from '../../hooks/usePresence';
+import type { PresenceUser } from '../../hooks/usePresence';
 import { msToPx } from '../../utils/timecode';
 
 interface RemoteCursorsProps {
-  projectId: string;
   zoomLevel: number;
   scrollPosition: number;
+  users: PresenceUser[];
 }
 
-export function RemoteCursors({ projectId, zoomLevel, scrollPosition }: RemoteCursorsProps) {
-  const { onlineUsers } = usePresence(projectId);
-
+export function RemoteCursors({ users, zoomLevel, scrollPosition }: RemoteCursorsProps) {
   return (
     <>
-      {onlineUsers.map((user) => {
+      {users.filter((user) => !user.isSelf).map((user) => {
         const left = msToPx(user.currentTimeMs, zoomLevel) - scrollPosition;
         if (left < 0) return null;
         return (

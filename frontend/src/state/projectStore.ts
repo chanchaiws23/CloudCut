@@ -3,6 +3,8 @@ import type { Project, Track, Clip, ClipEffect, Transition, TextOverlay, Asset }
 import { api } from '../services/api';
 import { commandManager } from './commands/CommandManager';
 import { v4 as uuidv4 } from 'uuid';
+import * as Y from 'yjs';
+import { useYjsStore } from './yjsStore';
 
 interface ProjectState {
   project: Project | null;
@@ -16,22 +18,30 @@ interface ProjectState {
   error: string | null;
 
   loadProject: (id: string) => Promise<void>;
-  loadAssets: (projectId: string) => Promise<void>;
+  loadAssets: (projectId: string, type?: string) => Promise<void>;
 
   addTrack: (track: Track) => void;
   updateTrack: (trackId: string, changes: Partial<Track>) => void;
   removeTrack: (trackId: string) => void;
 
   addClip: (clip: Clip) => void;
+  addClipUndoable: (clip: Clip) => void;
+  applyRemoteTrackAdd: (track: Track) => void;
+  applyRemoteTrackUpdate: (trackId: string, changes: Partial<Track>) => void;
+  applyRemoteTrackDelete: (trackId: string) => void;
   moveClip: (clipId: string, trackPositionMs: number, trackId?: string) => void;
-  trimClip: (clipId: string, inPointMs: number, outPointMs: number) => void;
+  trimClip: (clipId: string, inPointMs: number, outPointMs: number, trackPositionMs?: number) => void;
   splitClip: (clipId: string, atTimeMs: number) => void;
   deleteClips: (clipIds: string[]) => void;
   applyRemoteClipUpdate: (clipId: string, changes: Partial<Clip>) => void;
+  applyRemoteClipDelete: (clipId: string) => void;
 
   addEffect: (clipId: string, effect: ClipEffect) => void;
-  updateEffect: (clipId: string, effectId: string, params: Record<string, any>) => void;
+  updateEffect: (clipId: string, effectId: string, changes: Record<string, any>) => void;
   removeEffect: (clipId: string, effectId: string) => void;
+  applyRemoteEffectAdd: (clipId: string, effect: ClipEffect) => void;
+  applyRemoteEffectUpdate: (clipId: string, effectId: string, changes: Record<string, any>) => void;
+  applyRemoteEffectDelete: (clipId: string, effectId: string) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -49,27 +59,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const project = await api.projects.get(id);
+      let tracks: Track[] = project.tracks || [];
+      if (tracks.length === 0) {
+        tracks = await Promise.all([
+          api.timeline.createTrack(id, { type: 'video', label: 'V1', orderIndex: 0, color: '#3b82f6' }),
+          api.timeline.createTrack(id, { type: 'audio', label: 'A1', orderIndex: 1, color: '#22c55e' }),
+        ]);
+      }
       const effects: Record<string, ClipEffect[]> = {};
       (project.clips || []).forEach((clip: Clip) => {
         if (clip.effects) effects[clip.id] = clip.effects;
       });
       set({
         project,
-        tracks: project.tracks || [],
+        tracks,
         clips: (project.clips || []).map((c: Clip) => ({ ...c, effects: undefined })),
         effects,
         transitions: project.transitions || [],
         textOverlays: project.textOverlays || [],
         isLoading: false,
       });
-    } catch (e: any) {
-      set({ error: e.message, isLoading: false });
+      useYjsStore.getState().init(id);
+    } catch (e: unknown) {
+      set({ error: e instanceof Error ? e.message : 'Failed to load project', isLoading: false });
     }
   },
 
-  loadAssets: async (projectId) => {
-    const assets = await api.assets.list(projectId);
-    set({ assets });
+  loadAssets: async (projectId, type) => {
+    const response: any = await api.assets.list(projectId, type && type !== 'all' ? type : undefined);
+    set({ assets: response.data || response });
   },
 
   addTrack: (track) => set((s) => ({ tracks: [...s.tracks, track] })),
@@ -84,6 +102,35 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     })),
 
   addClip: (clip) => set((s) => ({ clips: [...s.clips, clip] })),
+
+  addClipUndoable: (clip) => {
+    const { project } = get();
+    commandManager.execute({
+      id: uuidv4(),
+      type: 'clip.add',
+      description: `Add ${clip.asset?.type || 'clip'}`,
+      timestamp: Date.now(),
+      execute: () => {
+        set((s) => ({ clips: s.clips.some((item) => item.id === clip.id) ? s.clips : [...s.clips, clip] }));
+      },
+      undo: () => {
+        set((s) => ({ clips: s.clips.filter((item) => item.id !== clip.id) }));
+        if (project) api.timeline.deleteClip(project.id, clip.id).catch(console.error);
+      },
+    });
+  },
+
+  applyRemoteTrackAdd: (track) =>
+    set((s) => ({ tracks: s.tracks.some((t) => t.id === track.id) ? s.tracks : [...s.tracks, track] })),
+
+  applyRemoteTrackUpdate: (trackId, changes) =>
+    set((s) => ({ tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, ...changes } : t)) })),
+
+  applyRemoteTrackDelete: (trackId) =>
+    set((s) => ({
+      tracks: s.tracks.filter((t) => t.id !== trackId),
+      clips: s.clips.filter((c) => c.trackId !== trackId),
+    })),
 
   moveClip: (clipId, trackPositionMs, trackId) => {
     const { clips, project } = get();
@@ -117,13 +164,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  trimClip: (clipId, inPointMs, outPointMs) => {
+  trimClip: (clipId, inPointMs, outPointMs, trackPositionMs?) => {
     const { clips, project } = get();
     const clip = clips.find((c) => c.id === clipId);
     if (!clip || !project) return;
 
     const prevIn = clip.inPointMs;
     const prevOut = clip.outPointMs;
+    const prevTrackPos = clip.trackPositionMs;
+    const newTrackPos = trackPositionMs ?? clip.trackPositionMs;
 
     commandManager.execute({
       id: uuidv4(),
@@ -133,18 +182,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       execute: () => {
         set((s) => ({
           clips: s.clips.map((c) =>
-            c.id === clipId ? { ...c, inPointMs, outPointMs, durationMs: outPointMs - inPointMs } : c,
+            c.id === clipId ? { ...c, inPointMs, outPointMs, durationMs: outPointMs - inPointMs, trackPositionMs: newTrackPos } : c,
           ),
         }));
-        api.timeline.updateClip(project.id, clipId, { inPointMs, outPointMs }).catch(console.error);
+        api.timeline.updateClip(project.id, clipId, { inPointMs, outPointMs, trackPositionMs: newTrackPos }).catch(console.error);
       },
       undo: () => {
         set((s) => ({
           clips: s.clips.map((c) =>
-            c.id === clipId ? { ...c, inPointMs: prevIn, outPointMs: prevOut, durationMs: prevOut - prevIn } : c,
+            c.id === clipId ? { ...c, inPointMs: prevIn, outPointMs: prevOut, durationMs: prevOut - prevIn, trackPositionMs: prevTrackPos } : c,
           ),
         }));
-        api.timeline.updateClip(project.id, clipId, { inPointMs: prevIn, outPointMs: prevOut }).catch(console.error);
+        api.timeline.updateClip(project.id, clipId, { inPointMs: prevIn, outPointMs: prevOut, trackPositionMs: prevTrackPos }).catch(console.error);
       },
     });
   },
@@ -201,6 +250,37 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     })),
 
+  applyRemoteClipDelete: (clipId) =>
+    set((s) => ({ clips: s.clips.filter((clip) => clip.id !== clipId) })),
+
+  applyRemoteEffectAdd: (clipId, effect) =>
+    set((s) => ({
+      effects: {
+        ...s.effects,
+        [clipId]: (s.effects[clipId] || []).some((item) => item.id === effect.id)
+          ? s.effects[clipId]
+          : [...(s.effects[clipId] || []), effect],
+      },
+    })),
+
+  applyRemoteEffectUpdate: (clipId, effectId, changes) =>
+    set((s) => ({
+      effects: {
+        ...s.effects,
+        [clipId]: (s.effects[clipId] || []).map((effect) =>
+          effect.id === effectId ? { ...effect, ...changes } : effect,
+        ),
+      },
+    })),
+
+  applyRemoteEffectDelete: (clipId, effectId) =>
+    set((s) => ({
+      effects: {
+        ...s.effects,
+        [clipId]: (s.effects[clipId] || []).filter((effect) => effect.id !== effectId),
+      },
+    })),
+
   addEffect: (clipId, effect) => {
     const { project } = get();
     if (!project) return;
@@ -225,10 +305,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
   },
 
-  updateEffect: (clipId, effectId, params) => {
+  updateEffect: (clipId, effectId, changes) => {
     const { effects, project } = get();
     if (!project) return;
-    const prevParams = effects[clipId]?.find((e) => e.id === effectId)?.params;
+    const effect = effects[clipId]?.find((e) => e.id === effectId);
+    const prevParams = effect?.params;
+    const prevEnabled = effect?.enabled;
+    const nextParams = changes.params ?? changes;
+    const nextEnabled = changes.enabled;
 
     commandManager.execute({
       id: uuidv4(),
@@ -240,11 +324,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           effects: {
             ...s.effects,
             [clipId]: (s.effects[clipId] || []).map((e) =>
-              e.id === effectId ? { ...e, params } : e,
+              e.id === effectId
+                ? { ...e, params: nextParams, ...(nextEnabled !== undefined ? { enabled: nextEnabled } : {}) }
+                : e,
             ),
           },
         }));
-        api.timeline.updateEffect(project.id, clipId, effectId, { params }).catch(console.error);
+        api.timeline.updateEffect(project.id, clipId, effectId, {
+          params: nextParams,
+          ...(nextEnabled !== undefined ? { enabled: nextEnabled } : {}),
+        }).catch(console.error);
       },
       undo: () => {
         if (!prevParams) return;
@@ -252,11 +341,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           effects: {
             ...s.effects,
             [clipId]: (s.effects[clipId] || []).map((e) =>
-              e.id === effectId ? { ...e, params: prevParams } : e,
+              e.id === effectId ? { ...e, params: prevParams, enabled: prevEnabled ?? e.enabled } : e,
             ),
           },
         }));
-        api.timeline.updateEffect(project.id, clipId, effectId, { params: prevParams }).catch(console.error);
+        api.timeline.updateEffect(project.id, clipId, effectId, {
+          params: prevParams,
+          ...(prevEnabled !== undefined ? { enabled: prevEnabled } : {}),
+        }).catch(console.error);
       },
     });
   },

@@ -2,6 +2,10 @@ import { useCallback } from 'react';
 import type { Clip } from '../../types';
 import { useProjectStore } from '../../state/projectStore';
 import { api } from '../../services/api';
+import { commandManager } from '../../state/commands/CommandManager';
+import { v4 as uuidv4 } from 'uuid';
+import { Input } from '../ui/input';
+import { Slider } from '../ui/slider';
 
 interface TransformEditorProps {
   clip: Clip;
@@ -20,9 +24,22 @@ export function TransformEditor({ clip, projectId }: TransformEditorProps) {
   const { applyRemoteClipUpdate } = useProjectStore();
 
   const handleChange = useCallback((key: string, value: number) => {
+    const previousTransform = { ...clip.transform };
     const newTransform = { ...clip.transform, [key]: value };
-    applyRemoteClipUpdate(clip.id, { transform: newTransform });
-    api.timeline.updateClip(projectId, clip.id, { transform: newTransform }).catch(console.error);
+    commandManager.execute({
+      id: uuidv4(),
+      type: 'clip.transform',
+      description: `Change ${key}`,
+      timestamp: Date.now(),
+      execute: () => {
+        applyRemoteClipUpdate(clip.id, { transform: newTransform });
+        api.timeline.updateClip(projectId, clip.id, { transform: newTransform }).catch(console.error);
+      },
+      undo: () => {
+        applyRemoteClipUpdate(clip.id, { transform: previousTransform });
+        api.timeline.updateClip(projectId, clip.id, { transform: previousTransform }).catch(console.error);
+      },
+    });
   }, [clip, projectId, applyRemoteClipUpdate]);
 
   return (
@@ -32,23 +49,22 @@ export function TransformEditor({ clip, projectId }: TransformEditorProps) {
         {fields.map(({ key, label, min, max, step }) => (
           <div key={key} className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-14">{label}</span>
-            <input
-              type="range"
+            <Slider
               min={min}
               max={max}
               step={step}
-              value={clip.transform[key as keyof typeof clip.transform] ?? 0}
-              onChange={(e) => handleChange(key, parseFloat(e.target.value))}
-              className="flex-1 accent-blue-500"
+              value={[Number(clip.transform[key as keyof typeof clip.transform] ?? 0)]}
+              onValueChange={([value]) => handleChange(key, value)}
+              className="flex-1"
             />
-            <input
+            <Input
               type="number"
               min={min}
               max={max}
               step={step}
               value={Number(clip.transform[key as keyof typeof clip.transform] ?? 0).toFixed(2)}
               onChange={(e) => handleChange(key, parseFloat(e.target.value))}
-              className="w-16 bg-input border border-border rounded px-1.5 py-0.5 text-xs text-foreground text-right focus:outline-none"
+              className="w-16 text-right"
             />
           </div>
         ))}

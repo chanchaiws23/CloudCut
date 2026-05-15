@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ExportsService } from './exports.service';
 import { CreateExportDto } from './dto/export.dto';
+import { ListExportsDto } from './dto/list-exports.dto';
+import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @ApiTags('Exports')
 @ApiBearerAuth()
@@ -13,25 +15,25 @@ export class ExportsController {
 
   @Post('projects/:projectId/exports')
   @ApiOperation({ summary: 'Create export job' })
-  create(@Param('projectId') projectId: string, @Body() dto: CreateExportDto, @Request() req: any) {
+  create(@Param('projectId') projectId: string, @Body() dto: CreateExportDto, @Req() req: AuthenticatedRequest) {
     return this.exportsService.create(projectId, dto, req.user.id);
   }
 
   @Get('projects/:projectId/exports')
   @ApiOperation({ summary: 'List exports for project' })
-  findByProject(@Param('projectId') projectId: string, @Request() req: any) {
-    return this.exportsService.findByProject(projectId, req.user.id);
+  findByProject(@Param('projectId') projectId: string, @Query() query: ListExportsDto, @Req() req: AuthenticatedRequest) {
+    return this.exportsService.findByProject(projectId, req.user.id, query.cursor, query.take);
   }
 
   @Get('exports/:id')
   @ApiOperation({ summary: 'Get export status and download URL' })
-  findOne(@Param('id') id: string) {
-    return this.exportsService.findById(id);
+  findOne(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.exportsService.findById(id, req.user.id);
   }
 
   @Delete('exports/:id')
   @ApiOperation({ summary: 'Cancel export' })
-  cancel(@Param('id') id: string, @Request() req: any) {
+  cancel(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.exportsService.cancel(id, req.user.id);
   }
 }

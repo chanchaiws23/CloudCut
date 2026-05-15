@@ -7,8 +7,16 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 const mockPrisma = {
+  $transaction: jest.fn(),
   user: {
     findUnique: jest.fn(),
+    findUniqueOrThrow: jest.fn(),
+    create: jest.fn(),
+  },
+  workspace: {
+    create: jest.fn(),
+  },
+  workspaceMember: {
     create: jest.fn(),
   },
 };
@@ -48,12 +56,19 @@ describe('AuthService', () => {
 
     it('creates user and returns tokens', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.user.create.mockResolvedValue({
+      const user = {
         id: '1', email: 'a@a.com', name: 'Alice', avatarUrl: null, createdAt: new Date(),
-      });
+        memberships: [{ role: 'owner', workspace: { id: 'w1', name: "Alice's Studio", plan: 'free' } }],
+      };
+      mockPrisma.$transaction.mockImplementation(async (cb) => cb(mockPrisma));
+      mockPrisma.user.create.mockResolvedValue(user);
+      mockPrisma.workspace.create.mockResolvedValue({ id: 'w1' });
+      mockPrisma.workspaceMember.create.mockResolvedValue({ id: 'm1' });
+      mockPrisma.user.findUniqueOrThrow.mockResolvedValue(user);
       const result = await service.register({ email: 'a@a.com', name: 'Alice', password: 'pass1234' });
       expect(result.accessToken).toBe('mock-token');
       expect(result.user.email).toBe('a@a.com');
+      expect(result.user.workspaces).toHaveLength(1);
     });
   });
 

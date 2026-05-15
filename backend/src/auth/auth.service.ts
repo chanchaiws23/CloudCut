@@ -21,13 +21,47 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        name: dto.name,
-        passwordHash,
-        avatarUrl: dto.avatarUrl,
-      },
+    const slugBase = dto.email
+      .split('@')[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'workspace';
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          email: dto.email,
+          name: dto.name,
+          passwordHash,
+          avatarUrl: dto.avatarUrl,
+        },
+      });
+
+      const workspace = await tx.workspace.create({
+        data: {
+          name: `${dto.name}'s Studio`,
+          slug: `${slugBase}-${createdUser.id.slice(0, 8)}`,
+          plan: 'free',
+          ownerId: createdUser.id,
+        },
+      });
+
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: createdUser.id,
+          role: 'owner',
+        },
+      });
+
+      return tx.user.findUniqueOrThrow({
+        where: { id: createdUser.id },
+        include: {
+          memberships: {
+            include: { workspace: { select: { id: true, name: true, plan: true } } },
+          },
+        },
+      });
     });
 
     const tokens = await this.generateTokens(user.id, user.email);
@@ -66,7 +100,14 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        memberships: {
+          include: { workspace: { select: { id: true, name: true, plan: true } } },
+        },
+      },
+    });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
@@ -85,13 +126,29 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private sanitizeUser(user: { id: string; email: string; name: string; avatarUrl: string | null; createdAt: Date }) {
+  private sanitizeUser(user: {
+    id: string;
+    email: string;
+    name: string;
+    avatarUrl: string | null;
+    createdAt: Date;
+    memberships?: Array<{
+      role: string;
+      workspace: { id: string; name: string; plan: string };
+    }>;
+  }) {
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       avatarUrl: user.avatarUrl,
       createdAt: user.createdAt,
+      workspaces: user.memberships?.map((m) => ({
+        id: m.workspace.id,
+        name: m.workspace.name,
+        plan: m.workspace.plan,
+        role: m.role,
+      })) || [],
     };
   }
 }

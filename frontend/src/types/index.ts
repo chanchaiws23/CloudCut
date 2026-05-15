@@ -76,6 +76,7 @@ export interface Clip {
   outPointMs: number;
   durationMs: number;
   transform: { x: number; y: number; scale: number; rotation: number; opacity: number };
+  deletedAt?: string | null;
   effects?: ClipEffect[];
   asset?: Asset;
 }
@@ -128,3 +129,51 @@ export interface ExportJob {
 }
 
 export type ActiveTool = 'select' | 'blade' | 'hand';
+
+// === API Response Types ===
+
+export interface AuthResponse {
+  user: UserWithWorkspaces;
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface UserWithWorkspaces extends User {
+  workspaces: Array<{
+    id: string;
+    name: string;
+    plan: string;
+    role: string;
+  }>;
+}
+
+export interface TokenResponse {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  nextCursor: string | null;
+}
+
+export interface PresignedUrlResponse {
+  assetId: string;
+  url: string;
+  key: string;
+  method: 'PUT' | 'POST';
+  headers?: Record<string, string>;
+  uploadMode: 'presigned' | 'local';
+}
+
+export interface SplitClipResponse {
+  original: Clip;
+  new: Clip;
+}
+
+export interface ProjectWithTimeline extends Project {
+  tracks: Track[];
+  clips: (Clip & { effects?: ClipEffect[]; asset?: Asset & { variants?: AssetVariant[] } })[];
+  transitions: Transition[];
+  textOverlays: TextOverlay[];
+}

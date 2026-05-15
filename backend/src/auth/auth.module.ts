@@ -14,10 +14,16 @@ import { UsersModule } from '../users/users.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'default-secret'),
-        signOptions: { expiresIn: config.get<string>('JWT_ACCESS_EXPIRATION', '15m') },
-      }),
+      useFactory: (config: ConfigService) => {
+        const secret = config.get<string>('JWT_SECRET');
+        if (!secret) {
+          throw new Error('JWT_SECRET environment variable is required');
+        }
+        return {
+          secret,
+          signOptions: { expiresIn: config.get<string>('JWT_ACCESS_EXPIRATION', '15m') },
+        };
+      },
     }),
   ],
   controllers: [AuthController],

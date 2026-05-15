@@ -9,26 +9,17 @@ interface SnapGuideProps {
 }
 
 export function SnapGuide({ zoomLevel }: SnapGuideProps) {
-  const { snapEnabled } = useUIStore();
-  const { clips } = useProjectStore();
+  const { snapEnabled, snapGuideMs } = useUIStore();
   const { currentTimeMs } = usePlaybackStore();
 
   if (!snapEnabled) return null;
 
-  const snapPoints = [
-    currentTimeMs,
-    ...clips.flatMap((c) => [c.trackPositionMs, c.trackPositionMs + c.durationMs]),
-  ];
+  const visibleGuide = snapGuideMs ?? currentTimeMs;
 
   return (
-    <>
-      {snapPoints.map((ms, i) => (
-        <div
-          key={i}
-          className="snap-guide opacity-0 hover:opacity-100"
-          style={{ left: msToPx(ms, zoomLevel) }}
-        />
-      ))}
-    </>
+    <div
+      className="snap-guide"
+      style={{ left: msToPx(visibleGuide, zoomLevel), opacity: snapGuideMs === null ? 0.25 : 1 }}
+    />
   );
 }

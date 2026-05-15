@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Pusher from 'pusher';
+import * as PusherLib from 'pusher';
+const Pusher = (PusherLib as any).default ?? PusherLib;
 
 @Injectable()
 export class PusherService {
-  private pusher: Pusher;
+  private readonly logger = new Logger(PusherService.name);
+  private pusher: any;
 
   constructor(private readonly configService: ConfigService) {
     this.pusher = new Pusher({
@@ -20,7 +22,7 @@ export class PusherService {
     try {
       await this.pusher.trigger(channel, event, data);
     } catch (error) {
-      console.error(`Pusher trigger failed: ${channel}/${event}`, error);
+      this.logger.error(`Pusher trigger failed: ${channel}/${event}`, (error as Error).stack);
     }
   }
 
@@ -32,6 +34,12 @@ export class PusherService {
       });
     }
     return this.pusher.authorizeChannel(socketId, channel);
+  }
+
+  getUserColor(userId: string) {
+    const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444'];
+    const hash = userId.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
   }
 
   getProjectChannel(projectId: string) {

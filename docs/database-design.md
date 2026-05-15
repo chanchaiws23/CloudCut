@@ -1,53 +1,57 @@
-# CloudCut — Database Design
+# CloudCut Database Design
 
-## Entity Relationship Overview
+รายละเอียดเชิงลึกอยู่ใน `backend/DESIGN.md` ส่วนนี้เป็น summary ของ schema และ deliverables
 
+## Entity Overview
+
+```text
+User
+  owns Workspace
+  belongs to Workspace through WorkspaceMember
+
+Workspace
+  has Invitation
+  has Project
+
+Project
+  has Asset -> AssetVariant
+  has Track -> Clip -> ClipEffect
+  has Transition
+  has TextOverlay
+  has ExportJob
+  has OperationLog
 ```
-User ──< WorkspaceMember >── Workspace ──< Project
-                                              │
-                          ┌───────────────────┤
-                          │                   │
-                         Asset              Track
-                          │                   │
-                     AssetVariant           Clip ──< ClipEffect
-                                             │
-                                         Transition
-                                         TextOverlay
-                                         ExportJob
-                                         OperationLog
-```
 
-## Key Design Decisions
+## Deliverables
 
-### Absolute Timeline Positions
-Clips use `track_position_ms` (absolute ms from timeline start) rather than relative-to-previous. This allows:
-- O(1) position queries
-- Independent concurrent editing of different clips
-- Simple overlap detection
+- Prisma schema: `backend/prisma/schema.prisma`
+- Migrations: `backend/prisma/migrations`
+- Seed script: `backend/prisma/seed.ts`
+- Design decisions: `backend/DESIGN.md`
 
-### Soft Delete Strategy
-`deleted_at` nullable timestamp on: User, Project, Asset, Clip.
-- App filters `WHERE deleted_at IS NULL` for normal reads
-- Hard delete runs via cleanup cron after grace period
-- Cascade: `onDelete: Cascade` in Prisma handles relational cleanup on hard delete
+## Seed Data
 
-### JSON Fields
-`transform`, `params`, `settings`, `metadata` stored as JSON:
-- Avoids schema migrations for new effect types / transform properties
-- Queried rarely (only on clip load, not in list queries)
-- Validated at application layer via class-validator
+seed script สร้างข้อมูลตัวอย่าง:
 
-### Indexes
-| Table | Index | Purpose |
-|-------|-------|---------|
-| clips | (trackId, trackPositionMs) | Timeline rendering — fetch clips on track ordered by position |
-| clips | (projectId, deletedAt) | Full project load |
-| assets | (projectId, status) | Filter ready assets for project |
-| operation_logs | (projectId, createdAt) | Reconnect sync — get ops since timestamp |
-| export_jobs | (status, expiresAt) | Cleanup cron — find expired exports |
+- 2 users: Alice และ Bob
+- 2 workspaces: free และ pro
+- workspace memberships และ pending invitation
+- 2 projects
+- assets พร้อม variants
+- tracks, clips, sample effects
+- transition และ text overlay
+- export job
+- operation log rows
 
-### OperationLog Partitioning Plan
-For projects with heavy collaboration, `operation_logs` can grow large. Planned strategy:
-1. PostgreSQL range partitioning by `created_at` (monthly)
-2. Archive partitions older than 30 days to cold storage
-3. Keep only last N operations in hot table per project
+## Index Summary
+
+schema มี indexes สำหรับ:
+
+- workspace ownership และ membership checks
+- invitation token และ pending invitation lookup
+- project listing พร้อม soft-delete filters
+- asset filtering ตาม status/type
+- timeline rendering ตาม track position
+- effect stack ordering
+- export cleanup/history
+- collaboration reconnect sync ด้วย operation timestamps และ per-project sequence numbers

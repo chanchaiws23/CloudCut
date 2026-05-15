@@ -33,5 +33,8 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
   setSpeed: (speed) => set({ playbackSpeed: speed }),
   setVolume: (volume) => set({ volume: Math.max(0, Math.min(1, volume)) }),
   toggleMute: () => set((s) => ({ isMuted: !s.isMuted })),
-  setDuration: (ms) => set({ durationMs: ms }),
+  setDuration: (ms) => set((s) => ({
+    durationMs: ms,
+    currentTimeMs: ms > 0 ? Math.min(s.currentTimeMs, ms) : 0,
+  })),
 }));

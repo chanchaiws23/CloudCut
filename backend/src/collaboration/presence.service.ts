@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-interface PresenceUser {
+export interface PresenceUser {
   userId: string;
   name: string;
   avatar: string;

@@ -3,9 +3,13 @@ import Pusher from 'pusher-js';
 
 let pusherInstance: Pusher | null = null;
 
-function getPusher(): Pusher {
+export function getPusher(): Pusher {
+  const key = import.meta.env.VITE_PUSHER_KEY || '';
+  if (!key) {
+    throw new Error('Missing VITE_PUSHER_KEY');
+  }
   if (!pusherInstance) {
-    pusherInstance = new Pusher(import.meta.env.VITE_PUSHER_KEY || '', {
+    pusherInstance = new Pusher(key, {
       cluster: import.meta.env.VITE_PUSHER_CLUSTER || 'ap1',
       authEndpoint: `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/collaboration/pusher/auth`,
       auth: {
@@ -23,12 +27,17 @@ export function usePusher() {
 }
 
 export function usePusherChannel(channelName: string, events: Record<string, (data: any) => void>) {
-  const pusher = getPusher();
   const handlersRef = useRef(events);
   handlersRef.current = events;
 
   useEffect(() => {
     if (!channelName) return;
+    let pusher: Pusher;
+    try {
+      pusher = getPusher();
+    } catch {
+      return;
+    }
     const channel = pusher.subscribe(channelName);
 
     Object.keys(handlersRef.current).forEach((event) => {
@@ -38,5 +47,5 @@ export function usePusherChannel(channelName: string, events: Record<string, (da
     return () => {
       pusher.unsubscribe(channelName);
     };
-  }, [channelName, pusher]);
+  }, [channelName]);
 }

@@ -1,10 +1,11 @@
-import { Controller, Post, Get, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -33,7 +34,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user info' })
-  getMe(@Request() req: any) {
+  getMe(@Req() req: AuthenticatedRequest) {
     return this.authService.getMe(req.user.id);
   }
 }

@@ -24,6 +24,12 @@ export class ProgressService {
       progress: Math.round(progress),
       status: job.status,
     });
+    if (job.status === 'completed') {
+      await this.syncService.notifyUser(job.requestedById, 'export-completed', {
+        exportId,
+        downloadUrl: job.outputUrl,
+      });
+    }
     return job;
   }
 
@@ -34,5 +40,40 @@ export class ProgressService {
     const asset = await this.prisma.asset.update({ where: { id: assetId }, data });
     await this.syncService.notifyUser(asset.uploadedById, 'asset-ready', { assetId, status });
     return asset;
+  }
+
+  async updateAssetProgress(assetId: string, progress: number, status = 'processing') {
+    const existing = await this.prisma.asset.findUnique({ where: { id: assetId } });
+    if (!existing) return null;
+    const metadata = (existing.metadata || {}) as Record<string, any>;
+    const asset = await this.prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        status,
+        metadata: {
+          ...metadata,
+          processing_progress: Math.round(progress),
+        },
+      },
+    });
+    await this.syncService.notifyUser(asset.uploadedById, 'job-progress', {
+      jobId: assetId,
+      type: 'asset',
+      progress: Math.round(progress),
+      status: asset.status,
+    });
+    return asset;
+  }
+
+  async markAssetReadyIfProcessingComplete(assetId: string) {
+    const variants = await this.prisma.assetVariant.findMany({ where: { assetId } });
+    const types = new Set(variants.map((variant) => variant.type));
+    const isComplete =
+      types.has('proxy') &&
+      types.has('thumbnail_strip') &&
+      types.has('waveform_data');
+
+    if (!isComplete) return null;
+    return this.updateAssetProgress(assetId, 100, 'ready');
   }
 }

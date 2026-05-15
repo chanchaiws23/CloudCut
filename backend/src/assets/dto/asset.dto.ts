@@ -13,12 +13,18 @@ export class PresignedUrlDto {
   @ApiProperty({ enum: ['video', 'audio', 'image'] })
   @IsIn(['video', 'audio', 'image'])
   type!: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  contentType?: string;
 }
 
 export class ConfirmUploadDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  projectId!: string;
+  projectId?: string;
 
   @ApiProperty()
   @IsString()

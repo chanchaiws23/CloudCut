@@ -43,6 +43,7 @@ export class CleanupProcessor extends WorkerHost {
     const orphanedAssets = await this.prisma.asset.deleteMany({
       where: {
         deletedAt: { lt: sevenDaysAgo },
+        clips: { none: {} },
       },
     });
 
@@ -55,6 +56,7 @@ export class CleanupProcessor extends WorkerHost {
       expired_exports: expiredExports.count,
       orphaned_assets: orphanedAssets.count,
       deleted_users: deletedUsers.count,
+      freed_bytes: 0,
     };
 
     this.logger.log(`Cleanup summary: ${JSON.stringify(summary)}`);

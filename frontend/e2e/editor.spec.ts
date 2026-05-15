@@ -6,7 +6,7 @@ test.describe('Editor', () => {
     await page.getByLabel(/Email/i).fill('alice@cloudcut.dev');
     await page.getByLabel(/Password/i).fill('password123');
     await page.getByRole('button', { name: /Sign In/i }).click();
-    await expect(page.getByText(/Product Demo Video/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('project-title')).toContainText(/Product Demo Video/i, { timeout: 10000 });
   });
 
   test('timeline renders with tracks', async ({ page }) => {

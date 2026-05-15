@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
 import { CollaborationModule } from '../collaboration/collaboration.module';
+import { QueuesModule } from './queues.module';
 import { FfmpegService } from './ffmpeg.service';
 import { OrchestratorService } from './orchestrator.service';
 import { ProgressService } from './progress.service';
@@ -14,14 +14,7 @@ import { CleanupProcessor } from './processors/cleanup.processor';
 @Module({
   imports: [
     CollaborationModule,
-    BullModule.registerQueue(
-      { name: 'asset-metadata' },
-      { name: 'proxy-generation' },
-      { name: 'thumbnail-generation' },
-      { name: 'waveform-extraction' },
-      { name: 'export-render' },
-      { name: 'cleanup' },
-    ),
+    QueuesModule,
   ],
   providers: [
     FfmpegService,

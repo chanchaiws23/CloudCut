@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { CommandManager } from '../state/commands/CommandManager';
 
@@ -13,9 +13,26 @@ interface TrimState {
   startTrackPositionMs: number;
 }
 
+interface ActiveListeners {
+  onMouseMove: (e: MouseEvent) => void;
+  onMouseUp: () => void;
+}
+
 export function useTrimClip(commandManager: CommandManager, zoomLevel: number) {
   const trimState = useRef<TrimState | null>(null);
+  const activeListeners = useRef<ActiveListeners | null>(null);
   const { clips, trimClip } = useProjectStore();
+
+  useEffect(() => {
+    return () => {
+      if (activeListeners.current) {
+        window.removeEventListener('mousemove', activeListeners.current.onMouseMove);
+        window.removeEventListener('mouseup', activeListeners.current.onMouseUp);
+        activeListeners.current = null;
+      }
+      trimState.current = null;
+    };
+  }, []);
 
   const onTrimStart = useCallback((
     e: React.MouseEvent,
@@ -78,10 +95,12 @@ export function useTrimClip(commandManager: CommandManager, zoomLevel: number) {
         }
       }
       trimState.current = null;
+      activeListeners.current = null;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
 
+    activeListeners.current = { onMouseMove, onMouseUp };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }, [clips, trimClip, zoomLevel, commandManager]);

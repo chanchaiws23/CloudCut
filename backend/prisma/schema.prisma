@@ -12,22 +12,22 @@ datasource db {
 // ============================================
 
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
+  id            String    @id @default(uuid())
+  email         String    @unique
   name          String
-  passwordHash  String   @map("password_hash")
-  avatarUrl     String?  @map("avatar_url")
-  oauthProvider String?  @map("oauth_provider")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  passwordHash  String    @map("password_hash")
+  avatarUrl     String?   @map("avatar_url")
+  oauthProvider String?   @map("oauth_provider")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
   deletedAt     DateTime? @map("deleted_at")
 
-  ownedWorkspaces   Workspace[]
-  memberships       WorkspaceMember[]
-  projects          Project[]         @relation("CreatedByUser")
-  assets            Asset[]
-  exportJobs        ExportJob[]
-  operationLogs     OperationLog[]
+  ownedWorkspaces Workspace[]
+  memberships     WorkspaceMember[]
+  projects        Project[]         @relation("CreatedByUser")
+  assets          Asset[]
+  exportJobs      ExportJob[]
+  operationLogs   OperationLog[]
 
   @@map("users")
 }
@@ -41,12 +41,14 @@ model Workspace {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner       User               @relation(fields: [ownerId], references: [id])
+  owner       User              @relation(fields: [ownerId], references: [id])
   members     WorkspaceMember[]
   invitations Invitation[]
   projects    Project[]
 
-  @@index([ownerId]) // Query workspaces by owner
+  // Used by dashboard "My Workspaces" query and permission checks when listing
+  // all workspaces a user owns. Low cardinality, high selectivity.
+  @@index([ownerId])
   @@map("workspaces")
 }
 
@@ -60,8 +62,12 @@ model WorkspaceMember {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, userId]) // One membership per user per workspace
-  @@index([userId]) // Query memberships by user
+  // Enforce one membership per user per workspace. Composite key prevents duplicate
+  // entries and is also used by RLS / authorization queries ("is user X a member of workspace Y").
+  @@unique([workspaceId, userId])
+  // Powers the "My Workspaces" sidebar: fetch every workspace a given user belongs to
+  // regardless of role. Covering index for JOINs against workspaces table.
+  @@index([userId])
   @@map("workspace_members")
 }
 
@@ -77,8 +83,12 @@ model Invitation {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@index([email, status]) // Lookup pending invitations by email
-  @@index([token]) // Token lookup for accepting invitations
+  // Used when a user clicks an invite link or during signup to resolve which workspace
+  // and role the token maps to. High selectivity, single-row lookup.
+  @@index([token])
+  // Powers the "Pending Invitations" list in workspace settings. Filtering by both
+  // email and status narrows results quickly for workspace admins managing invites.
+  @@index([email, status])
   @@map("invitations")
 }
 
@@ -87,14 +97,14 @@ model Invitation {
 // ============================================
 
 model Project {
-  id          String   @id @default(uuid())
-  workspaceId String   @map("workspace_id")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
   name        String
   description String?
-  settings    Json     @default("{\"resolution\": \"1920x1080\", \"fps\": 30, \"aspectRatio\": \"16:9\"}")
-  createdById String   @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  settings    Json      @default("{\"resolution\": \"1920x1080\", \"fps\": 30, \"aspectRatio\": \"16:9\"}")
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
   deletedAt   DateTime? @map("deleted_at")
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -107,30 +117,39 @@ model Project {
   exportJobs    ExportJob[]
   operationLogs OperationLog[]
 
-  @@index([workspaceId, deletedAt]) // List projects in workspace (excluding deleted)
-  @@index([createdById]) // User's projects
+  // Composite index supports the main project listing query (workspace dashboard).
+  // deleted_at is second because almost all queries filter deleted_at IS NULL;
+  // PostgreSQL can use this as a partial index candidate in combination with a WHERE clause.
+  @@index([workspaceId, deletedAt])
+  // Used for "My Recent Projects" and profile-scoped listings where we need
+  // every project a specific user created across all workspaces.
+  @@index([createdById])
   @@map("projects")
 }
 
 model Asset {
-  id          String   @id @default(uuid())
-  projectId   String   @map("project_id")
-  uploadedById String  @map("uploaded_by_id")
-  type        String   // video | audio | image
-  originalUrl String   @map("original_url")
-  status      String   @default("uploading") // uploading | processing | ready | failed
-  metadata    Json?    // { duration_ms, width, height, codec, file_size_bytes }
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  id           String    @id @default(uuid())
+  projectId    String    @map("project_id")
+  uploadedById String    @map("uploaded_by_id")
+  type         String // video | audio | image
+  originalUrl  String    @map("original_url")
+  status       String    @default("uploading") // uploading | processing | ready | failed
+  metadata     Json? // { duration_ms, width, height, codec, file_size_bytes }
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
 
   project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   uploadedBy User           @relation(fields: [uploadedById], references: [id])
   variants   AssetVariant[]
   clips      Clip[]
 
-  @@index([projectId, status]) // List assets by project filtered by status
-  @@index([projectId, type]) // Filter assets by type
+  // Project media bin uses this to show only "ready" assets. Composite index lets
+  // PostgreSQL skip assets still in uploading/processing state without a table scan.
+  @@index([projectId, status])
+  // Enables filtering the media bin by asset type (video / audio / image).
+  // Often combined with status = 'ready' in application queries.
+  @@index([projectId, type])
   @@map("assets")
 }
 
@@ -139,11 +158,14 @@ model AssetVariant {
   assetId  String @map("asset_id")
   type     String // proxy | thumbnail_strip | waveform_data
   url      String
-  metadata Json?  // e.g. proxy resolution, thumbnail interval
+  metadata Json? // e.g. proxy resolution, thumbnail interval
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
-  @@index([assetId, type]) // Lookup variant by asset and type
+  // Each asset may have multiple variants (proxy, thumbnail_strip, waveform_data).
+  // This unique-ish lookup is used when the player requests the proxy URL or
+  // the timeline needs the waveform for a specific audio asset.
+  @@index([assetId, type])
   @@map("asset_variants")
 }
 
@@ -154,8 +176,8 @@ model AssetVariant {
 model Track {
   id         String  @id @default(uuid())
   projectId  String  @map("project_id")
-  type       String  // video | audio
-  label      String  // e.g. "V1", "A2"
+  type       String // video | audio
+  label      String // e.g. "V1", "A2"
   orderIndex Int     @map("order_index")
   isLocked   Boolean @default(false) @map("is_locked")
   isMuted    Boolean @default(false) @map("is_muted")
@@ -164,47 +186,57 @@ model Track {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   clips   Clip[]
 
-  @@index([projectId, orderIndex]) // Ordered tracks per project
+  // Timeline initialization fetches tracks in visual stacking order (V1, V2, A1, A2).
+  // order_index determines z-order / track list order, so sorting by it is required.
+  @@index([projectId, orderIndex])
   @@map("tracks")
 }
 
 model Clip {
-  id              String   @id @default(uuid())
-  trackId         String   @map("track_id")
-  projectId       String   @map("project_id")
-  assetId         String?  @map("asset_id")
-  trackPositionMs Int      @map("track_position_ms") // Position on timeline (start)
-  inPointMs       Int      @map("in_point_ms") // Start point in source asset
-  outPointMs      Int      @map("out_point_ms") // End point in source asset
-  durationMs      Int      @map("duration_ms") // = out_point - in_point
-  transform       Json     @default("{\"x\": 0, \"y\": 0, \"scale\": 1, \"rotation\": 0, \"opacity\": 1}")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  trackId         String    @map("track_id")
+  projectId       String    @map("project_id")
+  assetId         String?   @map("asset_id")
+  trackPositionMs Int       @map("track_position_ms") // Position on timeline (start)
+  inPointMs       Int       @map("in_point_ms") // Start point in source asset
+  outPointMs      Int       @map("out_point_ms") // End point in source asset
+  durationMs      Int       @map("duration_ms") // = out_point - in_point
+  transform       Json      @default("{\"x\": 0, \"y\": 0, \"scale\": 1, \"rotation\": 0, \"opacity\": 1}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  track      Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
-  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  asset      Asset?       @relation(fields: [assetId], references: [id])
-  effects    ClipEffect[]
+  track           Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  asset           Asset?       @relation(fields: [assetId], references: [id])
+  effects         ClipEffect[]
   transitionsFrom Transition[] @relation("FromClip")
   transitionsTo   Transition[] @relation("ToClip")
 
-  @@index([trackId, trackPositionMs]) // Clips on a track ordered by position
-  @@index([projectId, deletedAt]) // All clips in project (excluding deleted)
+  // Core timeline rendering index. The editor fetches all clips on a track and
+  // sorts by track_position_ms to calculate visible ranges, overlaps, and gaps.
+  // Range queries (e.g., "clips between 0ms and 30000ms") are fully satisfied here.
+  @@index([trackId, trackPositionMs])
+  // Project-level queries such as "Load entire project" or "undo history" need
+  // every non-deleted clip. deleted_at second supports a partial-index-like pattern.
+  @@index([projectId, deletedAt])
   @@map("clips")
 }
 
 model ClipEffect {
   id         String  @id @default(uuid())
   clipId     String  @map("clip_id")
-  type       String  // brightness | contrast | saturation | blur | ...
+  type       String // brightness | contrast | saturation | blur | ...
   orderIndex Int     @map("order_index")
   params     Json    @default("{}") // e.g. { value: 1.2 }
   enabled    Boolean @default(true)
 
   clip Clip @relation(fields: [clipId], references: [id], onDelete: Cascade)
 
-  @@index([clipId, orderIndex]) // Effects on a clip ordered
+  // The effects panel and the render pipeline both require effects in strict
+  // application order (brightness first, then contrast, etc.). This composite
+  // index supports both exact-clip lookups and ordered retrieval.
+  @@index([clipId, orderIndex])
   @@map("clip_effects")
 }
 
@@ -221,29 +253,34 @@ model Transition {
   fromClip Clip    @relation("FromClip", fields: [fromClipId], references: [id], onDelete: Cascade)
   toClip   Clip    @relation("ToClip", fields: [toClipId], references: [id], onDelete: Cascade)
 
-  @@index([projectId]) // Transitions in project
+  // Timeline renderer loads all transitions for a project to draw transition
+  // icons between clip boundaries. Simple single-column index is sufficient
+  // because project_id has high cardinality and transition counts per project are low.
+  @@index([projectId])
   @@map("transitions")
 }
 
 model TextOverlay {
-  id              String  @id @default(uuid())
-  projectId       String  @map("project_id")
-  trackPositionMs Int     @map("track_position_ms")
-  durationMs      Int     @map("duration_ms")
-  content         String
-  fontFamily      String  @default("Inter") @map("font_family")
-  fontSize        Int     @default(24) @map("font_size")
-  fontColor       String  @default("#ffffff") @map("font_color")
-  positionX       Float   @default(0.5) @map("position_x")
-  positionY       Float   @default(0.5) @map("position_y")
-  alignment       String  @default("center")
-  backgroundColor String? @map("background_color")
-  backgroundOpacity Float @default(0) @map("background_opacity")
-  animation       String  @default("none") // fade_in | typewriter | none
+  id                String  @id @default(uuid())
+  projectId         String  @map("project_id")
+  trackPositionMs   Int     @map("track_position_ms")
+  durationMs        Int     @map("duration_ms")
+  content           String
+  fontFamily        String  @default("Inter") @map("font_family")
+  fontSize          Int     @default(24) @map("font_size")
+  fontColor         String  @default("#ffffff") @map("font_color")
+  positionX         Float   @default(0.5) @map("position_x")
+  positionY         Float   @default(0.5) @map("position_y")
+  alignment         String  @default("center")
+  backgroundColor   String? @map("background_color")
+  backgroundOpacity Float   @default(0) @map("background_opacity")
+  animation         String  @default("none") // fade_in | typewriter | none
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([projectId]) // Text overlays in project
+  // Text overlays are fetched per project during timeline initialization and
+  // player render loops. Single-column index on project_id covers this lookup.
+  @@index([projectId])
   @@map("text_overlays")
 }
 
@@ -252,29 +289,36 @@ model TextOverlay {
 // ============================================
 
 model ExportJob {
-  id              String   @id @default(uuid())
-  projectId       String   @map("project_id")
-  requestedById   String   @map("requested_by_id")
-  format          String   @default("mp4") // mp4 | webm
-  resolution      String   @default("1080p") // 720p | 1080p | 4k
-  quality         String   @default("standard") // draft | standard | high
-  status          String   @default("queued") // queued | processing | uploading | completed | failed | cancelled
-  progressPercent Int      @default(0) @map("progress_percent")
-  outputUrl       String?  @map("output_url")
-  outputFileSize  BigInt?  @map("output_file_size")
+  id              String    @id @default(uuid())
+  projectId       String    @map("project_id")
+  requestedById   String    @map("requested_by_id")
+  format          String    @default("mp4") // mp4 | webm
+  resolution      String    @default("1080p") // 720p | 1080p | 4k
+  quality         String    @default("standard") // draft | standard | high
+  status          String    @default("queued") // queued | processing | uploading | completed | failed | cancelled
+  progressPercent Int       @default(0) @map("progress_percent")
+  outputUrl       String?   @map("output_url")
+  outputFileSize  BigInt?   @map("output_file_size")
   startedAt       DateTime? @map("started_at")
   completedAt     DateTime? @map("completed_at")
   expiresAt       DateTime? @map("expires_at")
-  errorMessage    String?  @map("error_message")
-  idempotencyKey  String   @unique @map("idempotency_key")
-  createdAt       DateTime @default(now()) @map("created_at")
+  errorMessage    String?   @map("error_message")
+  idempotencyKey  String    @unique @map("idempotency_key")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   requestedBy User    @relation(fields: [requestedById], references: [id])
 
-  @@index([projectId, status]) // Exports by project and status
-  @@index([requestedById]) // User's exports
-  @@index([status, expiresAt]) // Cleanup: find expired exports
+  // Project settings page shows export history filtered by status
+  // (e.g., only show "completed" exports for download). Composite index avoids
+  // scanning unrelated export jobs from other projects.
+  @@index([projectId, status])
+  // User dashboard "My Exports" listing. Moderate cardinality, covers
+  // the common case of paginating a single user's export history.
+  @@index([requestedById])
+  // Nightly cleanup cron queries: SELECT * FROM export_jobs WHERE status = 'completed'
+  // AND expires_at < NOW(). Ordering by expires_at lets the DB find stale rows fast.
+  @@index([status, expiresAt])
   @@map("export_jobs")
 }
 
@@ -283,18 +327,22 @@ model ExportJob {
 // ============================================
 
 model OperationLog {
-  id            String   @id @default(uuid())
+  id            String   @id // UUID v7 generated in application layer for sortability
   projectId     String   @map("project_id")
   userId        String   @map("user_id")
   operationType String   @map("operation_type") // clip.add | clip.move | clip.trim | clip.delete | effect.update | ...
-  payload       Json     // Operation data
+  payload       Json // Operation data
   clientSeq     Int      @map("client_seq") // Client sequence number for ordering
   createdAt     DateTime @default(now()) @map("created_at")
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id])
 
-  @@index([projectId, createdAt]) // Operations in project ordered by time
-  @@index([projectId, clientSeq]) // Operations ordered by client sequence
+  // Unique constraint ensures deterministic ordering per project and prevents
+  // duplicate sequence numbers from race conditions during concurrent edits.
+  @@unique([projectId, clientSeq])
+  // Index for reconnect sync: fetch all operations in a project ordered by time (oldest first)
+  // Also supports cursor-based pagination when replaying operations after reconnect.
+  @@index([projectId, createdAt])
   @@map("operation_logs")
 }

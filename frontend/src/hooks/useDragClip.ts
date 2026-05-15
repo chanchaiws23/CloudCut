@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { useUIStore } from '../state/uiStore';
 import { CommandManager } from '../state/commands/CommandManager';
@@ -12,10 +12,27 @@ interface DragState {
   isDragging: boolean;
 }
 
+interface ActiveListeners {
+  onMouseMove: (e: MouseEvent) => void;
+  onMouseUp: () => void;
+}
+
 export function useDragClip(commandManager: CommandManager, zoomLevel: number, snapEnabled: boolean) {
   const dragState = useRef<DragState | null>(null);
+  const activeListeners = useRef<ActiveListeners | null>(null);
   const { clips, moveClip } = useProjectStore();
   const { setSnapGuideMs } = useUIStore();
+
+  useEffect(() => {
+    return () => {
+      if (activeListeners.current) {
+        window.removeEventListener('mousemove', activeListeners.current.onMouseMove);
+        window.removeEventListener('mouseup', activeListeners.current.onMouseUp);
+        activeListeners.current = null;
+      }
+      dragState.current = null;
+    };
+  }, []);
 
   const onDragStart = useCallback((
     e: React.MouseEvent,
@@ -82,10 +99,12 @@ export function useDragClip(commandManager: CommandManager, zoomLevel: number, s
         setSnapGuideMs(null);
       }
       dragState.current = null;
+      activeListeners.current = null;
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
 
+    activeListeners.current = { onMouseMove, onMouseUp };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }, [clips, moveClip, zoomLevel, snapEnabled, commandManager, setSnapGuideMs]);

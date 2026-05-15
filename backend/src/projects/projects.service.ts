@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { PlanLimitsService } from '../common/guards/plan-limits.service';
 import { CreateProjectDto, UpdateProjectDto } from './dto/create-project.dto';
+import { uuidV7Like } from '../common/utils/uuid-v7-like';
 
 @Injectable()
 export class ProjectsService {
@@ -15,14 +16,37 @@ export class ProjectsService {
   async create(dto: CreateProjectDto, userId: string) {
     await this.workspacesService.assertRole(dto.workspaceId, userId, ['owner', 'admin', 'editor']);
     await this.planLimits.assertCanCreateProject(dto.workspaceId);
-    return this.prisma.project.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        workspaceId: dto.workspaceId,
-        settings: dto.settings || { resolution: '1920x1080', fps: 30, aspectRatio: '16:9' },
-        createdById: userId,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const project = await tx.project.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          workspaceId: dto.workspaceId,
+          settings: dto.settings || { resolution: '1920x1080', fps: 30, aspectRatio: '16:9' },
+          createdById: userId,
+        },
+      });
+
+      await tx.track.createMany({
+        data: [
+          {
+            projectId: project.id,
+            type: 'video',
+            label: 'V1',
+            orderIndex: 0,
+            color: '#3b82f6',
+          },
+          {
+            projectId: project.id,
+            type: 'audio',
+            label: 'A1',
+            orderIndex: 1,
+            color: '#22c55e',
+          },
+        ],
+      });
+
+      return project;
     });
   }
 
@@ -47,7 +71,13 @@ export class ProjectsService {
       where: { id, deletedAt: null },
       include: {
         tracks: { orderBy: { orderIndex: 'asc' } },
-        clips: { where: { deletedAt: null }, include: { asset: true, effects: { orderBy: { orderIndex: 'asc' } } } },
+        clips: {
+          where: { deletedAt: null },
+          include: {
+            asset: { include: { variants: true } },
+            effects: { orderBy: { orderIndex: 'asc' } },
+          },
+        },
         transitions: true,
         textOverlays: true,
       },
@@ -145,6 +175,7 @@ export class ProjectsService {
     });
     return this.prisma.operationLog.create({
       data: {
+        id: uuidV7Like(),
         projectId: project.id,
         userId,
         operationType: 'project.snapshot',

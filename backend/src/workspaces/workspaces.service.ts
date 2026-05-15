@@ -22,12 +22,24 @@ export class WorkspacesService {
     });
   }
 
-  async findAllForUser(userId: string) {
+  async findAllForUser(userId: string, cursor?: string, take = 20) {
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId },
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: { workspace: true },
+      orderBy: { joinedAt: 'desc' },
     });
-    return memberships.map((m) => ({ ...m.workspace, role: m.role }));
+    const hasMore = memberships.length > take;
+    const data = (hasMore ? memberships.slice(0, take) : memberships).map((m) => ({
+      ...m.workspace,
+      membershipId: m.id,
+      role: m.role,
+    }));
+    return {
+      data,
+      nextCursor: hasMore ? memberships[take - 1]?.id : null,
+    };
   }
 
   async findById(id: string, userId: string) {

@@ -1,11 +1,16 @@
 import { create } from 'zustand';
 import * as Y from 'yjs';
 import { WebrtcProvider } from 'y-webrtc';
+import type { Awareness } from 'y-protocols/awareness';
+
+const YJS_SIGNALING_SERVERS = (
+  import.meta.env.VITE_YJS_SIGNALING_URL || 'wss://signaling.yjs.dev'
+).split(',');
 
 interface YjsState {
   doc: Y.Doc | null;
   provider: WebrtcProvider | null;
-  awareness: any;
+  awareness: Awareness | null;
   isConnected: boolean;
 
   init: (projectId: string) => void;
@@ -24,7 +29,7 @@ export const useYjsStore = create<YjsState>((set, get) => ({
 
     const doc = new Y.Doc();
     const provider = new WebrtcProvider(`cloudcut-${projectId}`, doc, {
-      signaling: ['wss://signaling.yjs.dev'],
+      signaling: YJS_SIGNALING_SERVERS,
     });
 
     provider.on('status', (event: { connected: boolean }) => {

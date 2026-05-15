@@ -8,6 +8,7 @@ import { PusherService } from '../../collaboration/pusher.service';
 
 const mockPrisma = {
   exportJob: {
+    findFirst: jest.fn().mockResolvedValue(null),
     findUnique: jest.fn(),
     create: jest.fn().mockResolvedValue({
       id: 'export-1', projectId: 'proj-1', status: 'queued',
@@ -38,7 +39,10 @@ const mockPlanLimits = {
   getWorkspacePlan: jest.fn().mockResolvedValue('pro'),
 };
 
-const mockOrchestrator = { startExport: jest.fn().mockResolvedValue(undefined) };
+const mockOrchestrator = {
+  startExport: jest.fn().mockResolvedValue(undefined),
+  ensureExportQueued: jest.fn().mockResolvedValue(undefined),
+};
 const mockPusher = { trigger: jest.fn(), getUserChannel: jest.fn().mockReturnValue('private-user-1') };
 
 describe('Idempotency', () => {
@@ -58,11 +62,13 @@ describe('Idempotency', () => {
 
     service = module.get<ExportsService>(ExportsService);
     jest.clearAllMocks();
+    mockPrisma.exportJob.findFirst.mockResolvedValue(null);
   });
 
   it('returns existing export job when idempotency key already exists', async () => {
     const existingJob = {
       id: 'export-existing',
+      projectId: 'proj-1',
       idempotencyKey: 'key-abc',
       status: 'queued',
     };
@@ -78,6 +84,7 @@ describe('Idempotency', () => {
     expect(result).toEqual(existingJob);
     expect(mockPrisma.exportJob.create).not.toHaveBeenCalled();
     expect(mockOrchestrator.startExport).not.toHaveBeenCalled();
+    expect(mockOrchestrator.ensureExportQueued).toHaveBeenCalledWith('export-existing', 'proj-1');
   });
 
   it('creates new export job when idempotency key is unique', async () => {
@@ -95,7 +102,7 @@ describe('Idempotency', () => {
   });
 
   it('does not trigger duplicate export processing for same key', async () => {
-    const existingJob = { id: 'export-existing', idempotencyKey: 'same-key', status: 'processing' };
+    const existingJob = { id: 'export-existing', projectId: 'proj-1', idempotencyKey: 'same-key', status: 'processing' };
     mockPrisma.exportJob.findUnique.mockResolvedValue(existingJob);
 
     await service.create('proj-1', {
@@ -106,5 +113,6 @@ describe('Idempotency', () => {
     }, 'user-1');
 
     expect(mockOrchestrator.startExport).not.toHaveBeenCalled();
+    expect(mockOrchestrator.ensureExportQueued).toHaveBeenCalledWith('export-existing', 'proj-1');
   });
 });

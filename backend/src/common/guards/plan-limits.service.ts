@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface PlanLimits {
@@ -9,17 +9,21 @@ export interface PlanLimits {
   maxStorageBytes: number;
   allowedEffects: string[];
   collaborationEnabled: boolean;
+  maxUploadsPerHour: number;
+  maxConcurrentExports: number;
 }
 
 const PLAN_CONFIG: Record<string, PlanLimits> = {
   free: {
     maxProjects: 3,
-    maxExportsPerMonth: 5,
+    maxExportsPerMonth: 50,
     maxExportResolution: '720p',
     allowedFormats: ['mp4'],
     maxStorageBytes: 1024 * 1024 * 1024, // 1 GB
     allowedEffects: ['brightness', 'contrast', 'saturation'],
     collaborationEnabled: false,
+    maxUploadsPerHour: 5,
+    maxConcurrentExports: 2,
   },
   pro: {
     maxProjects: 100,
@@ -29,6 +33,8 @@ const PLAN_CONFIG: Record<string, PlanLimits> = {
     maxStorageBytes: 1024 * 1024 * 1024 * 100, // 100 GB
     allowedEffects: ['brightness', 'contrast', 'saturation', 'blur', 'grayscale'],
     collaborationEnabled: true,
+    maxUploadsPerHour: 50,
+    maxConcurrentExports: 10,
   },
   team: {
     maxProjects: 1000,
@@ -38,6 +44,8 @@ const PLAN_CONFIG: Record<string, PlanLimits> = {
     maxStorageBytes: 1024 * 1024 * 1024 * 500, // 500 GB
     allowedEffects: ['brightness', 'contrast', 'saturation', 'blur', 'grayscale'],
     collaborationEnabled: true,
+    maxUploadsPerHour: 50,
+    maxConcurrentExports: 10,
   },
 };
 
@@ -63,7 +71,7 @@ export class PlanLimitsService {
       where: { workspaceId, deletedAt: null },
     });
     if (count >= limits.maxProjects) {
-      throw new Error(`Project limit reached for ${workspace.plan} plan (${limits.maxProjects}). Upgrade to create more projects.`);
+      throw new ForbiddenException(`Project limit reached for ${workspace.plan} plan (${limits.maxProjects}). Upgrade to create more projects.`);
     }
   }
 
@@ -75,13 +83,13 @@ export class PlanLimitsService {
     // Format check
     const fmt = format || 'mp4';
     if (!limits.allowedFormats.includes(fmt)) {
-      throw new Error(`Format "${fmt}" is not allowed on ${workspace.plan} plan. Upgrade to Pro.`);
+      throw new ForbiddenException(`Format "${fmt}" is not allowed on ${workspace.plan} plan. Upgrade to Pro.`);
     }
 
     // Resolution check
     const res = resolution || '1080p';
     if ((RESOLUTION_RANK[res] || 0) > (RESOLUTION_RANK[limits.maxExportResolution] || 0)) {
-      throw new Error(`Resolution "${res}" exceeds ${workspace.plan} plan limit (${limits.maxExportResolution}). Upgrade to Pro.`);
+      throw new ForbiddenException(`Resolution "${res}" exceeds ${workspace.plan} plan limit (${limits.maxExportResolution}). Upgrade to Pro.`);
     }
 
     // Monthly export count check
@@ -95,7 +103,17 @@ export class PlanLimitsService {
       },
     });
     if (exportCount >= limits.maxExportsPerMonth) {
-      throw new Error(`Monthly export limit reached for ${workspace.plan} plan (${limits.maxExportsPerMonth}). Upgrade to export more.`);
+      throw new ForbiddenException(`Monthly export limit reached for ${workspace.plan} plan (${limits.maxExportsPerMonth}). Upgrade to export more.`);
+    }
+
+    const activeExports = await this.prisma.exportJob.count({
+      where: {
+        project: { workspaceId },
+        status: { in: ['queued', 'processing', 'uploading'] },
+      },
+    });
+    if (activeExports >= limits.maxConcurrentExports) {
+      throw new ForbiddenException(`Concurrent export limit reached for ${workspace.plan} plan (${limits.maxConcurrentExports}).`);
     }
   }
 
@@ -104,7 +122,7 @@ export class PlanLimitsService {
     if (!workspace) return;
     const limits = this.getLimits(workspace.plan);
     if (!limits.allowedEffects.includes(effectType)) {
-      throw new Error(`Effect "${effectType}" is not available on ${workspace.plan} plan. Upgrade to Pro.`);
+      throw new ForbiddenException(`Effect "${effectType}" is not available on ${workspace.plan} plan. Upgrade to Pro.`);
     }
   }
 

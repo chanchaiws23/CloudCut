@@ -2,18 +2,21 @@ import { useCallback } from 'react';
 import { useProjectStore } from '../state/projectStore';
 import { useUIStore } from '../state/uiStore';
 import { snapToNearest } from '../utils/geometry';
+import { usePlaybackStore } from '../state/playbackStore';
 
 const SNAP_THRESHOLD_PX = 8;
 
 export function useSnap(zoomLevel: number) {
   const { clips } = useProjectStore();
   const { snapEnabled, setSnapGuideMs } = useUIStore();
+  const { currentTimeMs } = usePlaybackStore();
 
   const getSnapPoints = useCallback((excludeClipId?: string): number[] => {
     return clips
       .filter((c) => c.id !== excludeClipId)
-      .flatMap((c) => [c.trackPositionMs, c.trackPositionMs + c.durationMs]);
-  }, [clips]);
+      .flatMap((c) => [c.trackPositionMs, c.trackPositionMs + c.durationMs])
+      .concat(currentTimeMs);
+  }, [clips, currentTimeMs]);
 
   const applySnap = useCallback((
     positionMs: number,
@@ -29,7 +32,7 @@ export function useSnap(zoomLevel: number) {
     const snapPoints = getSnapPoints(excludeClipId);
     const snapped = snapToNearest(positionMs, snapPoints, thresholdMs);
 
-    if (snapped !== null) {
+    if (snapped !== positionMs) {
       setSnapGuideMs(snapped);
       return snapped;
     }

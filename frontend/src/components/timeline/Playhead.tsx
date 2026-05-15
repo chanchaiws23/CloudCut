@@ -10,7 +10,6 @@ interface PlayheadProps {
 
 export function Playhead({ zoomLevel, scrollPosition }: PlayheadProps) {
   const { currentTimeMs, seek } = usePlaybackStore();
-  const { setScrollPosition } = useUIStore();
 
   const leftPx = msToPx(currentTimeMs, zoomLevel);
 

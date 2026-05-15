@@ -8,6 +8,7 @@ interface UIState {
   activeTool: ActiveTool;
   snapEnabled: boolean;
   snapGuideMs: number | null;
+  hiddenTrackIds: string[];
   panelSizes: { left: number; center: number; right: number; bottom: number };
   theme: 'light' | 'dark';
 
@@ -19,6 +20,7 @@ interface UIState {
   setActiveTool: (tool: ActiveTool) => void;
   toggleSnap: () => void;
   setSnapGuideMs: (ms: number | null) => void;
+  toggleTrackVisibility: (trackId: string) => void;
   setPanelSizes: (sizes: Partial<UIState['panelSizes']>) => void;
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
@@ -33,6 +35,7 @@ export const useUIStore = create<UIState>((set) => ({
   activeTool: 'select',
   snapEnabled: true,
   snapGuideMs: null,
+  hiddenTrackIds: [],
   panelSizes: { left: 20, center: 55, right: 25, bottom: 40 },
   theme: savedTheme || 'dark',
 
@@ -52,6 +55,12 @@ export const useUIStore = create<UIState>((set) => ({
   setActiveTool: (tool) => set({ activeTool: tool }),
   toggleSnap: () => set((s) => ({ snapEnabled: !s.snapEnabled })),
   setSnapGuideMs: (ms) => set({ snapGuideMs: ms }),
+  toggleTrackVisibility: (trackId) =>
+    set((s) => ({
+      hiddenTrackIds: s.hiddenTrackIds.includes(trackId)
+        ? s.hiddenTrackIds.filter((id) => id !== trackId)
+        : [...s.hiddenTrackIds, trackId],
+    })),
   setPanelSizes: (sizes) =>
     set((s) => ({ panelSizes: { ...s.panelSizes, ...sizes } })),
   setTheme: (theme) => {

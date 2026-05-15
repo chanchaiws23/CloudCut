@@ -51,8 +51,9 @@ export function UndoHistoryPanel() {
           history.map((cmd, idx) => (
             <div
               key={cmd.id}
-              className="text-xs px-2 py-1.5 rounded bg-accent/50 text-foreground truncate"
+              className="text-xs px-2 py-1.5 rounded bg-accent/50 text-foreground truncate cursor-pointer hover:bg-accent"
               title={cmd.description}
+              onClick={() => commandManager.undoTo(idx)}
             >
               <span className="text-muted-foreground mr-1">{idx + 1}.</span>
               {cmd.description}

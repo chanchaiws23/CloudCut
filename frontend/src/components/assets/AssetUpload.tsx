@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
-import { api } from '../../services/api';
+import { api, getAccessToken } from '../../services/api';
 import { useProjectStore } from '../../state/projectStore';
+import { Loader2, Upload } from 'lucide-react';
+import { Button } from '../ui/button';
 
 interface AssetUploadProps {
   projectId: string;
@@ -21,13 +23,19 @@ export function AssetUpload({ projectId, onUploaded }: AssetUploadProps) {
     setProgress(0);
 
     try {
-      const { assetId, url } = await api.assets.getPresignedUrl({
+      const uploadTarget = await api.assets.getPresignedUrl({
         projectId,
         fileName: file.name,
         type: file.type.split('/')[0] as 'video' | 'audio' | 'image',
+        contentType: file.type,
       });
 
-      await uploadToBackend(url, file, setProgress);
+      if (uploadTarget.uploadMode === 'presigned') {
+        await uploadToPresignedUrl(uploadTarget.url, file, uploadTarget.headers, setProgress);
+        await api.assets.confirmUpload({ projectId, assetId: uploadTarget.assetId });
+      } else {
+        await uploadToBackend(uploadTarget.url, file, setProgress);
+      }
 
       await loadAssets(projectId);
       onUploaded?.();
@@ -50,20 +58,23 @@ export function AssetUpload({ projectId, onUploaded }: AssetUploadProps) {
         onChange={handleFileChange}
         disabled={uploading}
       />
-      <button
+      <Button
         onClick={() => fileRef.current?.click()}
         disabled={uploading}
-        className="w-full py-2 px-3 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+        className="w-full"
       >
         {uploading ? (
           <>
-            <span className="animate-spin">⟳</span>
+            <Loader2 className="h-4 w-4 animate-spin" />
             Uploading {progress}%
           </>
         ) : (
-          <>+ Upload Media</>
+          <>
+            <Upload className="h-4 w-4" />
+            Upload Media
+          </>
         )}
-      </button>
+      </Button>
       {uploading && (
         <div className="mt-2 h-1 bg-secondary rounded-full overflow-hidden">
           <div
@@ -76,18 +87,39 @@ export function AssetUpload({ projectId, onUploaded }: AssetUploadProps) {
   );
 }
 
+async function uploadToPresignedUrl(
+  url: string,
+  file: File,
+  headers: Record<string, string> | undefined,
+  onProgress: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    Object.entries(headers || { 'Content-Type': file.type }).forEach(([key, value]) => {
+      if (value) xhr.setRequestHeader(key, value);
+    });
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)));
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(file);
+  });
+}
+
 async function uploadToBackend(
   url: string,
   file: File,
   onProgress: (pct: number) => void,
 ): Promise<void> {
-  const token = localStorage.getItem('cloudcut_token') || '';
+  const token = getAccessToken();
   const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const fullUrl = url.startsWith('http') ? url : `${BASE}${url}`;
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', fullUrl);
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };

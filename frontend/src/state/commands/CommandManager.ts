@@ -43,6 +43,13 @@ export class CommandManager {
     return [...this.undoStack];
   }
 
+  undoTo(index: number): void {
+    const target = Math.max(0, Math.min(index, this.undoStack.length - 1));
+    while (this.undoStack.length - 1 > target) {
+      this.undo();
+    }
+  }
+
   canUndo(): boolean {
     return this.undoStack.length > 0;
   }

@@ -3,7 +3,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import type { Clip, ClipEffect } from '../../types';
 import { useProjectStore } from '../../state/projectStore';
 import { api } from '../../services/api';
-import { v4 as uuidv4 } from 'uuid';
+import { Button } from '../ui/button';
+import { Slider } from '../ui/slider';
 
 interface EffectEditorProps {
   clip: Clip;
@@ -14,31 +15,33 @@ interface EffectEditorProps {
 const EFFECT_TYPES = ['brightness', 'contrast', 'saturation', 'blur'];
 
 export function EffectEditor({ clip, effects, projectId }: EffectEditorProps) {
-  const { addEffect, removeEffect, updateEffect } = useProjectStore();
+  const { addEffect, removeEffect, updateEffect, loadProject } = useProjectStore();
   const [adding, setAdding] = useState(false);
 
   const handleAdd = async (type: string) => {
     setAdding(false);
-    const newEffect: ClipEffect = {
-      id: uuidv4(),
-      clipId: clip.id,
-      type,
-      orderIndex: effects.length,
-      params: { value: type === 'blur' ? 0 : type === 'opacity' ? 1 : 0 },
-      enabled: true,
-    };
-    addEffect(clip.id, newEffect);
-    await api.timeline.addEffect(projectId, clip.id, { type, params: newEffect.params }).catch(console.error);
+    const params = { value: type === 'blur' ? 0 : type === 'opacity' ? 1 : 0 };
+    const newEffect = await api.timeline
+      .addEffect(projectId, clip.id, { type, params, enabled: true })
+      .catch((error) => {
+        console.error(error);
+        return null;
+      });
+    if (newEffect) addEffect(clip.id, newEffect);
   };
 
   const handleToggle = (effect: ClipEffect) => {
-    updateEffect(clip.id, effect.id, { ...effect.params });
-    api.timeline.updateEffect(projectId, clip.id, effect.id, { enabled: !effect.enabled }).catch(console.error);
+    updateEffect(clip.id, effect.id, { params: effect.params, enabled: !effect.enabled });
   };
 
   const handleDelete = (effectId: string) => {
     removeEffect(clip.id, effectId);
-    api.timeline.deleteEffect(projectId, clip.id, effectId).catch(console.error);
+  };
+
+  const handleReverseOrder = async () => {
+    const effectIds = [...effects].reverse().map((effect) => effect.id);
+    await api.timeline.reorderEffects(projectId, clip.id, effectIds).catch(console.error);
+    await loadProject(projectId);
   };
 
   return (
@@ -46,12 +49,14 @@ export function EffectEditor({ clip, effects, projectId }: EffectEditorProps) {
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-medium text-foreground">Effects</h4>
         <div className="relative">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setAdding(!adding)}
-            className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="h-7 w-7 text-muted-foreground"
           >
             <Plus className="w-3.5 h-3.5" />
-          </button>
+          </Button>
           {adding && (
             <div className="absolute right-0 top-6 z-50 bg-card border border-border rounded shadow-lg py-1 min-w-[130px]">
               {EFFECT_TYPES.map((type) => (
@@ -71,6 +76,11 @@ export function EffectEditor({ clip, effects, projectId }: EffectEditorProps) {
       {effects.length === 0 && (
         <p className="text-xs text-muted-foreground">No effects. Click + to add.</p>
       )}
+      {effects.length > 1 && (
+        <Button variant="secondary" size="sm" onClick={handleReverseOrder} className="w-full">
+          Reverse effect order
+        </Button>
+      )}
 
       <div className="space-y-2">
         {effects.map((effect) => (
@@ -84,25 +94,26 @@ export function EffectEditor({ clip, effects, projectId }: EffectEditorProps) {
                 >
                   <div className={`w-3 h-3 rounded-full bg-white mx-0.5 transition-transform ${effect.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
                 </button>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => handleDelete(effect.id)}
-                  className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
                 >
                   <Trash2 className="w-3 h-3" />
-                </button>
+                </Button>
               </div>
             </div>
             {effect.enabled && (
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-muted-foreground w-8">Val</span>
-                <input
-                  type="range"
+                <Slider
                   min={effect.type === 'blur' ? 0 : effect.type === 'saturation' || effect.type === 'contrast' ? 0 : -100}
                   max={effect.type === 'blur' ? 20 : effect.type === 'saturation' || effect.type === 'contrast' ? 3 : 100}
                   step={effect.type === 'blur' ? 0.5 : 0.01}
-                  value={effect.params.value ?? 0}
-                  onChange={(e) => updateEffect(clip.id, effect.id, { value: parseFloat(e.target.value) })}
-                  className="flex-1 accent-blue-500"
+                  value={[Number(effect.params.value ?? 0)]}
+                  onValueChange={([value]) => updateEffect(clip.id, effect.id, { value })}
+                  className="flex-1"
                 />
                 <span className="text-[10px] text-muted-foreground w-10 text-right">
                   {Number(effect.params.value ?? 0).toFixed(2)}
